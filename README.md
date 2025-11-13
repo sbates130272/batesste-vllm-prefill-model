@@ -2,6 +2,34 @@
 
 A Python simulation of vLLM's PagedAttention and Prefix Caching mechanisms for understanding how Key-Value (KV) cache blocks are allocated, reused, and managed during LLM inference.
 
+## Quick Start
+
+```bash
+# Run with default settings
+python3 src/vllm-prefill-model.py
+
+# Show all available options
+python3 src/vllm-prefill-model.py --help
+
+# Configure block size and total blocks
+python3 src/vllm-prefill-model.py --block-size 8 --total-blocks 20
+
+# Test with custom prompts
+python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7"
+
+# Run in quiet mode for cleaner output
+python3 src/vllm-prefill-model.py --quiet
+```
+
+## Features
+
+- 🔧 **Configurable Parameters**: Adjust block size and total blocks via command-line arguments
+- 🎯 **Custom Prompts**: Test your own token sequences and prefix patterns
+- 📊 **Detailed Logging**: Observe cache hits/misses and block allocation in real-time
+- 🤫 **Quiet Mode**: Reduce verbosity for cleaner output
+- 🎓 **Educational**: Clear visualization of vLLM's memory management internals
+- 🐍 **Pure Python**: No external dependencies required
+
 ## Overview
 
 This project provides an educational implementation of vLLM's memory management system, specifically focusing on:
@@ -73,12 +101,12 @@ Main orchestrator for the caching and memory management system.
 
 ## Configuration
 
-The simulation can be configured through global constants:
+The simulation can be configured via command-line arguments:
 
-```python
-BLOCK_SIZE = 4        # Number of tokens per block
-TOTAL_BLOCKS = 10     # Total number of blocks in the pool
-```
+- `--block-size`, `-b`: Number of tokens per KV cache block (default: 4)
+- `--total-blocks`, `-t`: Total number of blocks in the cache pool (default: 10)
+- `--prompts`, `-p`: Custom prompt token sequences (space or comma-separated integers)
+- `--quiet`, `-q`: Reduce output verbosity (hide status after each operation)
 
 ## Running the Simulation
 
@@ -87,15 +115,37 @@ TOTAL_BLOCKS = 10     # Total number of blocks in the pool
 - Python 3.6 or higher
 - No external dependencies required (uses only standard library)
 
-### Execution
+### Basic Usage
 
 ```bash
+# Run with default settings
 python3 src/vllm-prefill-model.py
+
+# Show help and all options
+python3 src/vllm-prefill-model.py --help
+```
+
+### Configuration Options
+
+```bash
+# Configure block size and total blocks
+python3 src/vllm-prefill-model.py --block-size 8 --total-blocks 20
+
+# Run with custom prompts (test your own scenarios)
+python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7" "1,2,3,4,5"
+
+# Quiet mode (less verbose output)
+python3 src/vllm-prefill-model.py --quiet
+
+# Combine options
+python3 src/vllm-prefill-model.py --block-size 4 --prompts "1,2,3,4" "1,2,3,5" --quiet
 ```
 
 ### Example Output
 
-The simulation demonstrates three scenarios:
+#### Default Simulation
+
+The default simulation (no custom prompts) demonstrates three scenarios:
 
 1. **Request A**: Initial prompt allocation (11 tokens)
    - Allocates 3 blocks (2 full + 1 partial)
@@ -110,6 +160,20 @@ The simulation demonstrates three scenarios:
    - Allocates new blocks for divergent suffix
 
 The simulation then demonstrates proper cleanup by freeing requests and showing how reference counting prevents premature deallocation of shared blocks.
+
+#### Custom Prompts
+
+When using `--prompts`, you can define your own test scenarios with custom token sequences. Each prompt should be a sequence of comma or space-separated integers representing token IDs:
+
+```bash
+# Test prefix caching with custom token sequences
+python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5,6" "1,2,3,7,8,9" "10,11,12,13"
+```
+
+This is useful for:
+- Testing specific cache hit/miss patterns
+- Exploring different prompt overlap scenarios
+- Understanding how block boundaries affect caching
 
 ## Simulation Flow
 

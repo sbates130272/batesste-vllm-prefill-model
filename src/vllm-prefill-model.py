@@ -1,14 +1,16 @@
+import argparse
 import uuid
 from typing import List, Dict, Optional, Tuple
 
-# --- Configuration ---
-BLOCK_SIZE = 4
-TOTAL_BLOCKS = 10
+# --- Default Configuration ---
+DEFAULT_BLOCK_SIZE = 4
+DEFAULT_TOTAL_BLOCKS = 10
 
 class KVBlock:
     """Represents a single KV Cache block in physical GPU memory."""
-    def __init__(self, block_id: int):
+    def __init__(self, block_id: int, block_size: int):
         self.block_id: int = block_id
+        self.block_size: int = block_size
         # Token IDs stored in this block (simulates K/V data).
         self.token_ids: List[int] = []
         # Number of active requests currently using this block.
@@ -17,7 +19,7 @@ class KVBlock:
         self.is_cached: bool = False
 
     def is_full(self) -> bool:
-        return len(self.token_ids) == BLOCK_SIZE
+        return len(self.token_ids) == self.block_size
 
     def __repr__(self) -> str:
         status = "CACHED" if self.is_cached else "NOT CACHED"
@@ -46,7 +48,7 @@ class PrefixCacheManager:
 
         # Physical Block Pool (simulated GPU memory)
         self.block_pool: Dict[int, KVBlock] = {
-            i: KVBlock(i) for i in range(total_blocks)
+            i: KVBlock(i, block_size) for i in range(total_blocks)
         }
 
         # Free Queue (list of available block IDs - acts as LRU/FIFO if used as a queue)
@@ -233,11 +235,46 @@ class PrefixCacheManager:
         print(f"Request {request.request_id} freed successfully.")
 
 
-def run_simulation():
-    manager = PrefixCacheManager(total_blocks=TOTAL_BLOCKS, block_size=BLOCK_SIZE)
-    print(f"Starting simulation with {TOTAL_BLOCKS} blocks, size {BLOCK_SIZE}.")
-    manager.get_status()
+def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLOCKS, 
+                   custom_prompts=None, verbose=True):
+    """
+    Run the vLLM prefix caching simulation.
+    
+    Args:
+        block_size: Number of tokens per block
+        total_blocks: Total number of blocks in the pool
+        custom_prompts: Optional list of custom prompt token lists
+        verbose: Whether to print detailed status information
+    """
+    manager = PrefixCacheManager(total_blocks=total_blocks, block_size=block_size)
+    print(f"Starting simulation with {total_blocks} blocks, size {block_size}.")
+    if verbose:
+        manager.get_status()
 
+    # Use custom prompts if provided, otherwise use default simulation
+    if custom_prompts:
+        requests = []
+        for i, prompt_tokens in enumerate(custom_prompts):
+            print(f"\n--- Processing Custom Request {i+1} ---")
+            req = SimulatedRequest(
+                request_id=str(uuid.uuid4())[:8],
+                prompt_tokens=prompt_tokens
+            )
+            hit_count = manager.process_request(req)
+            print(f"Total Cache Hit Tokens: {hit_count}")
+            if verbose:
+                manager.get_status()
+            requests.append(req)
+        
+        # Free all requests
+        for req in requests:
+            manager.free_request(req)
+            if verbose:
+                manager.get_status()
+        return
+
+    # --- Default Simulation ---
+    
     # --- Time 1: Request A (Full Prompt Allocation & Caching) ---
     prompt_a_tokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # 11 tokens -> 3 full blocks + 1 partial block
     req_a = SimulatedRequest(
@@ -245,7 +282,8 @@ def run_simulation():
         prompt_tokens=prompt_a_tokens
     )
     manager.process_request(req_a)
-    manager.get_status()
+    if verbose:
+        manager.get_status()
 
     # --- Time 2: Request B (Exact Prefix Match) ---
     # This prompt is the same as Request A, showing 100% cache reuse.
@@ -256,7 +294,8 @@ def run_simulation():
     )
     hit_count = manager.process_request(req_b)
     print(f"Total Cache Hit Tokens for Request B: {hit_count}")
-    manager.get_status()
+    if verbose:
+        manager.get_status()
 
     # --- Time 3: Request C (Partial Prefix Match) ---
     # This prompt matches the first 8 tokens (2 full blocks) of A/B, then forks.
@@ -268,13 +307,15 @@ def run_simulation():
     )
     hit_count = manager.process_request(req_c)
     print(f"Total Cache Hit Tokens for Request C: {hit_count}")
-    manager.get_status()
+    if verbose:
+        manager.get_status()
 
     # --- Time 4: Free Request A ---
     # Blocks 0, 1 are still in use by B and C (ref_count > 0).
     # Blocks 2, 3 are only used by A. They will be freed and returned to the free queue.
     manager.free_request(req_a)
-    manager.get_status()
+    if verbose:
+        manager.get_status()
 
     # --- Time 5: Free Request B ---
     # Blocks 0, 1, 2, 3 were used by B. Blocks 0, 1 are still used by C (ref_count > 0).
@@ -293,7 +334,8 @@ def run_simulation():
     # B3 (A/B's B3): Refs=1 (B) -> NOT freed
 
     manager.free_request(req_b)
-    manager.get_status()
+    if verbose:
+        manager.get_status()
 
     # After freeing B (Time 5):
     # B0: Refs=1 (C)
@@ -307,9 +349,93 @@ def run_simulation():
 
     # --- Time 6: Free Request C ---
     manager.free_request(req_c)
-    manager.get_status()
+    if verbose:
+        manager.get_status()
     # All blocks are now back in the free queue, available for the next request.
 
 
+def parse_prompt_arg(prompt_str):
+    """
+    Parse a prompt string into a list of integers.
+    Accepts formats like: "1,2,3,4" or "1 2 3 4"
+    """
+    # Replace spaces with commas for uniform parsing
+    prompt_str = prompt_str.replace(' ', ',')
+    try:
+        return [int(x.strip()) for x in prompt_str.split(',') if x.strip()]
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"Invalid prompt format. Use comma or space-separated integers: {e}")
+
+
+def main():
+    """Main entry point with argument parsing."""
+    parser = argparse.ArgumentParser(
+        description='Simulate vLLM PagedAttention and Prefix Caching mechanisms',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run with default settings
+  python3 vllm-prefill-model.py
+  
+  # Configure block size and total blocks
+  python3 vllm-prefill-model.py --block-size 8 --total-blocks 20
+  
+  # Run with custom prompts
+  python3 vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7" "1,2,3,4,5"
+  
+  # Quiet mode (less verbose output)
+  python3 vllm-prefill-model.py --quiet
+  
+  # Combine options
+  python3 vllm-prefill-model.py --block-size 4 --prompts "1,2,3,4" "1,2,3,5" --quiet
+        """
+    )
+    
+    parser.add_argument(
+        '--block-size', '-b',
+        type=int,
+        default=DEFAULT_BLOCK_SIZE,
+        help=f'Number of tokens per KV cache block (default: {DEFAULT_BLOCK_SIZE})'
+    )
+    
+    parser.add_argument(
+        '--total-blocks', '-t',
+        type=int,
+        default=DEFAULT_TOTAL_BLOCKS,
+        help=f'Total number of blocks in the cache pool (default: {DEFAULT_TOTAL_BLOCKS})'
+    )
+    
+    parser.add_argument(
+        '--prompts', '-p',
+        nargs='+',
+        type=parse_prompt_arg,
+        metavar='PROMPT',
+        help='Custom prompt token sequences (space or comma-separated integers). '
+             'Example: --prompts "1,2,3,4" "1,2,3,5"'
+    )
+    
+    parser.add_argument(
+        '--quiet', '-q',
+        action='store_true',
+        help='Reduce output verbosity (hide status after each operation)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Validate arguments
+    if args.block_size <= 0:
+        parser.error("Block size must be positive")
+    if args.total_blocks <= 0:
+        parser.error("Total blocks must be positive")
+    
+    # Run simulation with parsed arguments
+    run_simulation(
+        block_size=args.block_size,
+        total_blocks=args.total_blocks,
+        custom_prompts=args.prompts,
+        verbose=not args.quiet
+    )
+
+
 if __name__ == "__main__":
-    run_simulation()
+    main()
