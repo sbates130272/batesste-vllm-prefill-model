@@ -36,9 +36,25 @@ python3 src/multi_user_simulator.py
 python3 src/multi_user_simulator.py --num-clients 10 \
   --num-conversations 100 --request-rate 2.0
 
+# Enable real-time visualization dashboard
+python3 src/multi_user_simulator.py --visualize \
+  --num-clients 5 --request-rate 1.0
+
 # See all options and detailed usage examples
 python3 src/multi_user_simulator.py --help
 ```
+
+### Real-Time Visualization
+
+The multi-user simulator includes a **live dashboard** that shows:
+- Cache occupancy over time
+- Cache hit rate percentage
+- Per-client request counts
+- Active conversations
+- Event timeline
+
+📊 **See [docs/VISUALIZATION.md](docs/VISUALIZATION.md)** for detailed
+visualization guide and examples.
 
 ## Features
 
