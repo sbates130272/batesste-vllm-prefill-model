@@ -476,7 +476,7 @@ def run_simulation(
     # Blocks 2, 3 are now only used by B's old ref (which is now 0) and
     # will be freed, but wait...
     # Blocks 2 and 3 have ref_count=1 (from A) after Time 4, then B
-    # re-used them.
+    # reused them.
     # Let's check the current ref counts:
     # B0: Refs=2 (from B, C)
     # B1: Refs=2 (from B, C)

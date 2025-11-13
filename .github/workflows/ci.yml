@@ -92,3 +92,17 @@ jobs:
         pip install bandit
         bandit -r src/ -ll || true
 
+  spellcheck:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check spelling with codespell
+      uses: codespell-project/actions-codespell@v2
+      with:
+        check_filenames: true
+        skip: "*.pyc,__pycache__,.git,.github,*.egg-info"
+        ignore_words_list: "nd,inout,hist"
+
