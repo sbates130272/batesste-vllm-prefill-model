@@ -34,6 +34,24 @@ PrefixCacheManager = vllm_module.PrefixCacheManager
 DEFAULT_BLOCK_SIZE = vllm_module.DEFAULT_BLOCK_SIZE
 DEFAULT_TOTAL_BLOCKS = vllm_module.DEFAULT_TOTAL_BLOCKS
 
+# Import visualizer
+try:
+    from visualizer import SimulationVisualizer, NullVisualizer
+    VISUALIZER_AVAILABLE = True
+except ImportError:
+    VISUALIZER_AVAILABLE = False
+    # Create a fallback NullVisualizer if import fails
+    class NullVisualizer:
+        def __init__(self, *args, **kwargs): pass
+        def update_cache_state(self, *args, **kwargs): pass
+        def update_request(self, *args, **kwargs): pass
+        def update_active_conversations(self, *args, **kwargs): pass
+        def add_event(self, *args, **kwargs): pass
+        def start(self): pass
+        def stop(self): pass
+        def keep_alive(self): pass
+        def close(self): pass
+
 
 class ConversationSampling(str, Enum):
     """Strategy for selecting which conversation to process next."""
@@ -217,6 +235,7 @@ async def client_worker(
     request_rate: float,
     max_active_conversations: int,
     stats: ClientStats,
+    visualizer: Optional[object] = None,
     verbose: bool = False
 ) -> None:
     """
@@ -230,11 +249,12 @@ async def client_worker(
         request_rate: Request rate (Poisson process, 0 = no delay)
         max_active_conversations: Max concurrent conversations per client
         stats: Statistics collector for this client
+        visualizer: Optional visualizer for real-time display
         verbose: Whether to print detailed logs
     """
     if verbose:
         print(f"[Client {client_id}] Starting with "
-              f"{len(conversations)} conversations")
+              f"{len(conversations)} conversations", flush=True)
     
     # Active conversations queue
     active_convs: Dict[str, Conversation] = {}
@@ -247,6 +267,15 @@ async def client_worker(
     
     # Track index for round-robin through all conversations
     next_conv_idx = max_active_conversations
+    
+    # Update visualizer with initial state
+    if visualizer:
+        visualizer.update_active_conversations(
+            client_id, len(active_convs)
+        )
+        visualizer.add_event(
+            f"Client {client_id} started with {len(conversations)} convs"
+        )
     
     while len(active_convs) > 0:
         # Pick a conversation to process
@@ -276,7 +305,8 @@ async def client_worker(
             print(f"[Client {client_id}] {conv_id} Turn "
                   f"{conv.current_turn}: {len(prompt_tokens)} tokens "
                   f"({history_tokens} history + "
-                  f"{len(conv.turns[conv.current_turn].user_tokens)} new)")
+                  f"{len(conv.turns[conv.current_turn].user_tokens)} new)", 
+                  flush=True)
         
         # Process the request (this is synchronous in our simulation)
         cache_hit_count = manager.process_request(req)
@@ -294,10 +324,27 @@ async def client_worker(
         cached_percent = (cache_hit_count / len(prompt_tokens) * 100) \
             if len(prompt_tokens) > 0 else 0
         
+        # Update visualizer
+        if visualizer:
+            # Update cache state
+            used_blocks = manager.total_blocks - len(manager.free_block_ids)
+            visualizer.update_cache_state(used_blocks)
+            
+            # Update request stats
+            visualizer.update_request(
+                client_id, cache_hit_count, len(prompt_tokens)
+            )
+            
+            # Add event
+            visualizer.add_event(
+                f"C{client_id} {conv_id} T{conv.current_turn}: "
+                f"{cached_percent:.0f}% cached"
+            )
+        
         if verbose:
             print(f"[Client {client_id}] {conv_id} Turn "
                   f"{conv.current_turn} completed: "
-                  f"{cached_percent:.1f}% cached")
+                  f"{cached_percent:.1f}% cached", flush=True)
         
         # Free the request
         manager.free_request(req)
@@ -313,7 +360,13 @@ async def client_worker(
             # Conversation finished
             active_convs.pop(conv_id)
             if verbose:
-                print(f"[Client {client_id}] Finished {conv_id}")
+                print(f"[Client {client_id}] Finished {conv_id}", flush=True)
+            
+            # Update visualizer
+            if visualizer:
+                visualizer.update_active_conversations(
+                    client_id, len(active_convs)
+                )
             
             # Add a new conversation if available
             if next_conv_idx < len(conversations):
@@ -321,6 +374,12 @@ async def client_worker(
                 active_convs[new_conv.conv_id] = new_conv
                 conv_queue.appendleft(new_conv.conv_id)
                 next_conv_idx += 1
+                
+                # Update visualizer
+                if visualizer:
+                    visualizer.update_active_conversations(
+                        client_id, len(active_convs)
+                    )
         
         # Sleep between requests (Poisson process)
         if request_rate > 0:
@@ -328,7 +387,17 @@ async def client_worker(
             await asyncio.sleep(interval)
     
     if verbose:
-        print(f"[Client {client_id}] Completed all conversations")
+        print(f"[Client {client_id}] Completed all conversations", flush=True)
+
+
+async def update_visualization_loop(visualizer, stop_event):
+    """Background task to force visualization updates."""
+    while not stop_event.is_set():
+        try:
+            visualizer.keep_alive()
+            await asyncio.sleep(0.1)  # Update 10 times per second
+        except:
+            break
 
 
 async def run_multi_user_simulation(
@@ -339,10 +408,14 @@ async def run_multi_user_simulation(
     sampling_strategy: ConversationSampling,
     request_rate: float,
     max_active_conversations: int,
+    visualizer: Optional[object] = None,
     verbose: bool = False
 ) -> Dict[int, ClientStats]:
     """
     Run the multi-user simulation with multiple clients.
+    
+    Args:
+        visualizer: Optional visualizer for real-time display
     
     Returns:
         Dictionary mapping client_id to ClientStats
@@ -352,6 +425,14 @@ async def run_multi_user_simulation(
         total_blocks=total_blocks,
         block_size=block_size
     )
+    
+    # Start visualization update task if visualizer is present
+    stop_event = asyncio.Event()
+    viz_task = None
+    if visualizer:
+        viz_task = asyncio.create_task(
+            update_visualization_loop(visualizer, stop_event)
+        )
     
     print(f"\n{'='*70}")
     print(f"Multi-User Simulation Starting")
@@ -390,6 +471,7 @@ async def run_multi_user_simulation(
             request_rate=request_rate,
             max_active_conversations=max_active_conversations,
             stats=stats,
+            visualizer=visualizer,
             verbose=verbose
         ))
         tasks.append(task)
@@ -398,6 +480,11 @@ async def run_multi_user_simulation(
     start_time = time.time()
     await asyncio.gather(*tasks)
     end_time = time.time()
+    
+    # Stop visualization update task
+    if viz_task:
+        stop_event.set()
+        await viz_task
     
     # Print summary statistics
     print(f"\n{'='*70}")
@@ -585,6 +672,12 @@ Examples:
         help='Enable verbose output'
     )
     
+    parser.add_argument(
+        '--visualize',
+        action='store_true',
+        help='Enable real-time visualization dashboard (requires matplotlib)'
+    )
+    
     args = parser.parse_args()
     
     # Set random seeds
@@ -639,17 +732,51 @@ Examples:
     )
     print(f"Generated {len(conversations)} conversations")
     
+    # Create visualizer if requested
+    visualizer = None
+    if args.visualize:
+        if not VISUALIZER_AVAILABLE:
+            print("\nWARNING: matplotlib not available. "
+                  "Install with: pip install matplotlib")
+            print("Running without visualization...\n")
+            visualizer = NullVisualizer()
+        else:
+            print("\nStarting visualization dashboard...")
+            print("(Close the window to end visualization)\n")
+            visualizer = SimulationVisualizer(
+                num_clients=args.num_clients,
+                total_blocks=args.total_blocks,
+                update_interval=100  # Update every 100ms
+            )
+            visualizer.start()
+    
     # Run the simulation
-    asyncio.run(run_multi_user_simulation(
-        num_clients=args.num_clients,
-        conversations=conversations,
-        block_size=args.block_size,
-        total_blocks=args.total_blocks,
-        sampling_strategy=args.sampling_strategy,
-        request_rate=args.request_rate,
-        max_active_conversations=args.max_active_conversations,
-        verbose=args.verbose
-    ))
+    try:
+        asyncio.run(run_multi_user_simulation(
+            num_clients=args.num_clients,
+            conversations=conversations,
+            block_size=args.block_size,
+            total_blocks=args.total_blocks,
+            sampling_strategy=args.sampling_strategy,
+            request_rate=args.request_rate,
+            max_active_conversations=args.max_active_conversations,
+            visualizer=visualizer,
+            verbose=args.verbose
+        ))
+        
+        # Keep visualization alive after simulation
+        if visualizer and args.visualize and VISUALIZER_AVAILABLE:
+            print("\nSimulation complete! Visualization will remain open.")
+            print("Press Ctrl+C or close the window to exit.")
+            try:
+                import matplotlib.pyplot as plt
+                plt.show(block=True)
+            except KeyboardInterrupt:
+                print("\nClosing visualization...")
+    finally:
+        if visualizer:
+            visualizer.stop()
+            visualizer.close()
 
 
 if __name__ == "__main__":

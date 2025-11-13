@@ -2,6 +2,10 @@ import argparse
 import uuid
 from typing import List, Dict, Optional, Tuple
 
+# --- Debug Configuration ---
+# Set to True to enable verbose debug logging (WARNING: very slow!)
+DEBUG = False
+
 # --- Default Configuration ---
 DEFAULT_BLOCK_SIZE = 4
 DEFAULT_TOTAL_BLOCKS = 10
@@ -104,17 +108,23 @@ class PrefixCacheManager:
 
     def get_status(self):
         """Prints the current state of the system."""
-        print("--- Cache Manager Status ---")
-        print(
+        if DEBUG:
+            print("--- Cache Manager Status ---")
+        if DEBUG:
+            print(
             f"Total Blocks: {self.total_blocks}, "
             f"Free Blocks: {len(self.free_block_ids)}"
         )
-        print(f"Prefix Cache Size: {len(self.prefix_cache)}")
-        print("--- Block Pool Summary (Active Blocks) ---")
+        if DEBUG:
+            print(f"Prefix Cache Size: {len(self.prefix_cache)}")
+        if DEBUG:
+            print("--- Block Pool Summary (Active Blocks) ---")
         for block in self.block_pool.values():
             if block.ref_count > 0 or block.is_cached():
-                print(f"  {block}")
-        print("----------------------------")
+                if DEBUG:
+                    print(f"  {block}")
+        if DEBUG:
+            print("----------------------------")
 
     def _generate_cache_key(
         self, prefix_tokens: List[int], block_tokens: List[int]
@@ -135,7 +145,8 @@ class PrefixCacheManager:
         if not self.free_block_ids:
             # Simple eviction policy: just say memory is full for
             # this demo
-            print("ERROR: KV Cache is full. Cannot allocate new block.")
+            if DEBUG:
+                print("ERROR: KV Cache is full. Cannot allocate new block.")
             return -1
 
         # Get an available physical block ID from the free queue
@@ -152,7 +163,8 @@ class PrefixCacheManager:
         """
         Handles a new request, attempting to reuse cached prefixes.
         """
-        print(f"\n--- Processing New Request: {request.request_id} ---")
+        if DEBUG:
+            print(f"\n--- Processing New Request: {request.request_id} ---")
 
         # The block table holds the mapping from logical block index
         # to physical block ID.
@@ -199,7 +211,8 @@ class PrefixCacheManager:
                     hit_block.ref_count += 1
                     block_table.append(cached_block_id)
                     cache_hit_count += len(block_tokens)
-                    print(
+                    if DEBUG:
+                        print(
                         f"  [Cache Hit] Reusing Block ID "
                         f"{cached_block_id} for tokens {block_tokens}. "
                         f"Refs: {hit_block.ref_count}"
@@ -213,7 +226,8 @@ class PrefixCacheManager:
                     # Partial Block Hit or end of prompt. Stop
                     # caching/reuse. The rest of the prompt must be
                     # allocated anew.
-                    print(
+                    if DEBUG:
+                        print(
                         f"  [Partial Match] Block {block_tokens} found, "
                         f"but it's the end of prompt. "
                         f"Allocation begins now."
@@ -222,7 +236,8 @@ class PrefixCacheManager:
 
             else:
                 # --- CACHE MISS or Allocation Begins ---
-                print(
+                if DEBUG:
+                    print(
                     f"  [Cache Miss] Block {block_tokens} not found in "
                     f"cache. Allocating new blocks."
                 )
@@ -243,7 +258,8 @@ class PrefixCacheManager:
 
             # 1. Allocate a new physical block
             if not self.free_block_ids:
-                print("  [Allocation Failed] Ran out of free blocks.")
+                if DEBUG:
+                    print("  [Allocation Failed] Ran out of free blocks.")
                 break
 
             physical_block_id = self.free_block_ids.pop(0)
@@ -264,7 +280,8 @@ class PrefixCacheManager:
             new_block.token_ids = block_tokens  # Simulate prefill
             new_block.ref_count += 1
             block_table.append(physical_block_id)
-            print(
+            if DEBUG:
+                print(
                 f"  [Allocation] Allocated Block ID {physical_block_id} "
                 f"for tokens {block_tokens}."
             )
@@ -277,7 +294,8 @@ class PrefixCacheManager:
                 self.prefix_cache[cache_key] = physical_block_id
                 # Set block_hash to mark this block as cached (vLLM style)
                 new_block.block_hash = cache_key
-                print(
+                if DEBUG:
+                    print(
                     f"  [Cache Save] Block ID {physical_block_id} "
                     f"saved to cache (Key Length: {len(cache_key)})."
                 )
@@ -288,11 +306,13 @@ class PrefixCacheManager:
 
         request.block_table = block_table
         self.active_requests.append(request)
-        print(
+        if DEBUG:
+            print(
             f"  Request {request.request_id} finished processing. "
             f"Blocks used: {request.block_table}"
         )
-        print(
+        if DEBUG:
+            print(
             f"  Total tokens computed (not cached): "
             f"{len(prompt_tokens) - cache_hit_count}"
         )
@@ -304,7 +324,8 @@ class PrefixCacheManager:
         ref counts. Blocks with ref_count == 0 are returned to the free
         queue.
         """
-        print(f"\n--- Freeing Request: {request.request_id} ---")
+        if DEBUG:
+            print(f"\n--- Freeing Request: {request.request_id} ---")
 
         # Free blocks in reverse order, as suggested by vLLM (to
         # prioritize evicting less reusable blocks)
@@ -312,7 +333,8 @@ class PrefixCacheManager:
             block = self.block_pool[block_id]
             block.ref_count -= 1
 
-            print(
+            if DEBUG:
+                print(
                 f"  Block ID {block_id}: Ref Count Decremented to "
                 f"{block.ref_count}."
             )
@@ -341,11 +363,13 @@ class PrefixCacheManager:
                 # reuse unless evicted). According to vLLM docs, block_hash
                 # is reset on eviction, not when just added to free queue.
                 block.token_ids = []
-                print(f"  Block ID {block_id} added back to free queue.")
+                if DEBUG:
+                    print(f"  Block ID {block_id} added back to free queue.")
 
         # Remove request from active list
         self.active_requests.remove(request)
-        print(f"Request {request.request_id} freed successfully.")
+        if DEBUG:
+            print(f"Request {request.request_id} freed successfully.")
 
 
 def run_simulation(
@@ -366,7 +390,8 @@ def run_simulation(
     manager = PrefixCacheManager(
         total_blocks=total_blocks, block_size=block_size
     )
-    print(f"Starting simulation with {total_blocks} blocks, size "
+    if DEBUG:
+        print(f"Starting simulation with {total_blocks} blocks, size "
           f"{block_size}.")
     if verbose:
         manager.get_status()
@@ -375,13 +400,15 @@ def run_simulation(
     if custom_prompts:
         requests = []
         for i, prompt_tokens in enumerate(custom_prompts):
-            print(f"\n--- Processing Custom Request {i+1} ---")
+            if DEBUG:
+                print(f"\n--- Processing Custom Request {i+1} ---")
             req = SimulatedRequest(
                 request_id=str(uuid.uuid4())[:8],
                 prompt_tokens=prompt_tokens
             )
             hit_count = manager.process_request(req)
-            print(f"Total Cache Hit Tokens: {hit_count}")
+            if DEBUG:
+                print(f"Total Cache Hit Tokens: {hit_count}")
             if verbose:
                 manager.get_status()
             requests.append(req)
@@ -414,7 +441,8 @@ def run_simulation(
         prompt_tokens=prompt_b_tokens
     )
     hit_count = manager.process_request(req_b)
-    print(f"Total Cache Hit Tokens for Request B: {hit_count}")
+    if DEBUG:
+        print(f"Total Cache Hit Tokens for Request B: {hit_count}")
     if verbose:
         manager.get_status()
 
@@ -429,7 +457,8 @@ def run_simulation(
         prompt_tokens=prompt_c_tokens
     )
     hit_count = manager.process_request(req_c)
-    print(f"Total Cache Hit Tokens for Request C: {hit_count}")
+    if DEBUG:
+        print(f"Total Cache Hit Tokens for Request C: {hit_count}")
     if verbose:
         manager.get_status()
 
