@@ -81,11 +81,18 @@ class TextModeDataset:
             print(f"WARNING: Could not load tokenizer: {e}")
             print("Falling back to mock tokenization...")
     
-    def load_sharegpt_dataset(self, max_conversations: int = 100):
+    def load_sharegpt_dataset(
+        self, 
+        max_conversations: int = 100,
+        min_turns: int = 2,
+        max_turns: int = 20
+    ):
         """
         Load ShareGPT format dataset.
         
-        Expected format:
+        Supports multiple ShareGPT format variations:
+        
+        Format 1 (Standard):
         [
             {
                 "id": "conv_id",
@@ -98,11 +105,27 @@ class TextModeDataset:
             ...
         ]
         
+        Format 2 (Vicuna):
+        [
+            {
+                "id": "conv_id",
+                "conversations": [
+                    {"from": "human", "value": "..."},
+                    {"from": "gpt", "value": "..."},
+                    ...
+                ]
+            },
+            ...
+        ]
+        
         Args:
             max_conversations: Maximum conversations to load
+            min_turns: Minimum number of turns to include
+            max_turns: Maximum number of turns to include
         """
         if not self.dataset_path:
-            print("No dataset path provided. Generating synthetic text...")
+            print("No dataset path provided. "
+                  "Generating synthetic text...")
             self._generate_synthetic_text_conversations(max_conversations)
             return
         
@@ -113,15 +136,34 @@ class TextModeDataset:
             
             # Handle different formats
             if isinstance(data, list):
-                self.conversations = data[:max_conversations]
+                raw_conversations = data
             elif isinstance(data, dict) and 'conversations' in data:
-                self.conversations = data['conversations'][:max_conversations]
+                raw_conversations = data['conversations']
+            elif isinstance(data, dict) and 'data' in data:
+                raw_conversations = data['data']
             else:
                 raise ValueError(
-                    "Unknown dataset format. Expected list of conversations."
+                    "Unknown dataset format. "
+                    "Expected list of conversations."
                 )
             
-            print(f"✓ Loaded {len(self.conversations)} conversations")
+            print(f"Loaded {len(raw_conversations):,} raw conversations")
+            
+            # Normalize and filter conversations
+            normalized = self._normalize_conversations(
+                raw_conversations,
+                min_turns=min_turns,
+                max_turns=max_turns
+            )
+            
+            # Sample if needed
+            if len(normalized) > max_conversations:
+                import random
+                normalized = random.sample(normalized, max_conversations)
+            
+            self.conversations = normalized
+            print(f"✓ Using {len(self.conversations):,} conversations "
+                  f"({min_turns}-{max_turns} turns)")
             
         except FileNotFoundError:
             print(f"Dataset file not found: {self.dataset_path}")
@@ -131,6 +173,122 @@ class TextModeDataset:
             print(f"Error loading dataset: {e}")
             print("Generating synthetic text conversations instead...")
             self._generate_synthetic_text_conversations(max_conversations)
+    
+    def _normalize_conversations(
+        self,
+        raw_conversations: List[Dict],
+        min_turns: int = 2,
+        max_turns: int = 20
+    ) -> List[Dict]:
+        """
+        Normalize conversations to standard format and filter.
+        
+        Args:
+            raw_conversations: Raw conversation data
+            min_turns: Minimum turns to keep
+            max_turns: Maximum turns to keep
+        
+        Returns:
+            Normalized conversations in standard format
+        """
+        normalized = []
+        
+        for conv in raw_conversations:
+            try:
+                # Extract ID
+                conv_id = conv.get('id', conv.get('conversation_id', 
+                                   f'conv_{len(normalized):04d}'))
+                
+                # Extract messages (handle multiple field names)
+                messages_raw = (conv.get('messages') or 
+                               conv.get('conversations') or
+                               conv.get('dialog') or [])
+                
+                if not messages_raw:
+                    continue
+                
+                # Normalize message format
+                messages = []
+                for msg in messages_raw:
+                    # Extract role (handle multiple field names)
+                    role = (msg.get('role') or 
+                           msg.get('from') or 
+                           msg.get('sender'))
+                    
+                    # Normalize role names
+                    if role in ['human', 'user', 'USER']:
+                        role = 'user'
+                    elif role in ['gpt', 'assistant', 'ASSISTANT', 
+                                  'bot']:
+                        role = 'assistant'
+                    elif role == 'system':
+                        # Skip system messages for now
+                        continue
+                    else:
+                        # Unknown role, skip
+                        continue
+                    
+                    # Extract content
+                    content = (msg.get('content') or 
+                              msg.get('value') or 
+                              msg.get('text') or '')
+                    
+                    if not content.strip():
+                        continue
+                    
+                    messages.append({
+                        'role': role,
+                        'content': content.strip()
+                    })
+                
+                # Filter by number of turns
+                num_messages = len(messages)
+                if num_messages < min_turns * 2:
+                    continue
+                if num_messages > max_turns * 2:
+                    # Truncate to max_turns
+                    messages = messages[:max_turns * 2]
+                
+                # Ensure alternating user/assistant pattern
+                if not self._validate_alternating(messages):
+                    continue
+                
+                normalized.append({
+                    'id': conv_id,
+                    'messages': messages
+                })
+                
+            except Exception as e:
+                # Skip conversations that fail to parse
+                continue
+        
+        return normalized
+    
+    def _validate_alternating(self, messages: List[Dict]) -> bool:
+        """
+        Check if messages alternate between user and assistant.
+        
+        Args:
+            messages: List of message dicts
+        
+        Returns:
+            True if valid alternating pattern
+        """
+        if not messages:
+            return False
+        
+        # Should start with user
+        if messages[0]['role'] != 'user':
+            return False
+        
+        # Check alternating pattern
+        for i in range(len(messages) - 1):
+            curr_role = messages[i]['role']
+            next_role = messages[i + 1]['role']
+            if curr_role == next_role:
+                return False
+        
+        return True
     
     def _generate_synthetic_text_conversations(
         self,

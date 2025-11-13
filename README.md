@@ -56,6 +56,35 @@ The multi-user simulator includes a **live dashboard** that shows:
 📊 **See [docs/VISUALIZATION.md](docs/VISUALIZATION.md)** for detailed
 visualization guide and examples.
 
+### ShareGPT Dataset Integration
+
+Use **real conversation data** for realistic simulations:
+
+```bash
+# Download ShareGPT dataset
+./scripts/download_sharegpt.py sg-sample
+
+# Analyze the dataset
+./scripts/analyze_dataset.py data/sg-sample.json
+
+# Run simulation with real conversations
+./src/multi_user_simulator.py \
+  --text-mode \
+  --dataset-path data/sg-sample.json \
+  --num-clients 5 \
+  --num-conversations 100 \
+  --visualize
+```
+
+Benefits of real data:
+- ✅ Realistic token distributions
+- ✅ Natural conversation patterns
+- ✅ Production-like cache behavior
+- ✅ Multiple tokenizer support (GPT-2, LLaMA, Mistral)
+
+📚 **See [docs/SHAREGPT_INTEGRATION.md](docs/SHAREGPT_INTEGRATION.md)**
+for complete guide on using real datasets.
+
 ## Features
 
 - 🔧 **Configurable Parameters**: Adjust block size and total blocks via

@@ -896,7 +896,12 @@ Examples:
             )
             
             # Load conversations
-            dataset.load_sharegpt_dataset(max_conversations=args.num_conversations)
+            # Load more than needed for better filtering
+            dataset.load_sharegpt_dataset(
+                max_conversations=args.num_conversations * 2,
+                min_turns=2,
+                max_turns=20
+            )
             
             # Get text conversations
             conversations = dataset.get_text_conversations(
