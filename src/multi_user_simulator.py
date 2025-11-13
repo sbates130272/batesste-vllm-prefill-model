@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Multi-User vLLM Prefix Caching Simulator
 
