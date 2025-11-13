@@ -469,6 +469,16 @@ async def client_worker(
                   f"{conv.current_turn} completed: "
                   f"{cached_percent:.1f}% cached", flush=True)
         
+        # Check if we should stop early (e.g., max turns limit reached)
+        if visualizer and hasattr(visualizer, 'should_stop') and \
+           visualizer.should_stop:
+            if verbose:
+                print(f"[Client {client_id}] Stopping due to turn limit",
+                      flush=True)
+            # Free current request before stopping
+            manager.free_request(req)
+            break
+        
         # Free the request
         manager.free_request(req)
         
