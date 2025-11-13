@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vLLM Prefix Caching Simulator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 vLLM Prefix Caching Simulator</h1>
+            <p class="subtitle">Interactive web interface for testing vLLM 
+            cache behavior</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Configuration Panel -->
+            <div class="panel config-panel">
+                <h2>⚙️ Configuration</h2>
+                
+                <form id="configForm">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="num_clients">Number of Clients</label>
+                            <input type="number" id="num_clients" 
+                                   value="3" min="1" max="20">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="num_conversations">Conversations</label>
+                            <input type="number" id="num_conversations" 
+                                   value="20" min="1" max="1000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="block_size">Block Size</label>
+                            <input type="number" id="block_size" 
+                                   value="16" min="1" max="128">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="total_blocks">Total Blocks</label>
+                            <input type="number" id="total_blocks" 
+                                   value="500" min="10" max="100000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="request_rate">Request Rate (req/s)</label>
+                            <input type="number" id="request_rate" 
+                                   value="1.0" min="0" max="100" step="0.1">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="max_active_conversations">
+                                Max Active Convs
+                            </label>
+                            <input type="number" id="max_active_conversations" 
+                                   value="3" min="1" max="50">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="max_total_turns">
+                                Max Total Turns (0=unlimited)
+                            </label>
+                            <input type="number" id="max_total_turns" 
+                                   value="0" min="0" max="10000">
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" id="startBtn" 
+                                class="btn btn-primary">
+                            ▶️ Start Simulation
+                        </button>
+                        <button type="button" id="stopBtn" 
+                                class="btn btn-secondary" disabled>
+                            ⏹️ Stop
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="panel status-panel">
+                <h2>📊 Status</h2>
+                <div id="statusContent" class="status-content">
+                    <p class="status-idle">Ready to start simulation</p>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-grid">
+                <div class="chart-container">
+                    <h3>Cache Hit Rate (%)</h3>
+                    <canvas id="hitRateChart"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <h3>Cache Occupancy (%)</h3>
+                    <canvas id="occupancyChart"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <h3>Active Conversations</h3>
+                    <canvas id="activeConvsChart"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <h3>Per-Client Statistics</h3>
+                    <canvas id="clientStatsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Events Log -->
+            <div class="panel events-panel">
+                <h2>📝 Events Log</h2>
+                <div id="eventsLog" class="events-log"></div>
+            </div>
+        </div>
+
+        <footer>
+            <p>vLLM Prefix Caching Simulator | 
+            <a href="https://github.com/yourusername/vllm-simulator" 
+               target="_blank">GitHub</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
+
