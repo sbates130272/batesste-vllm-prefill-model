@@ -8,24 +8,49 @@ DEFAULT_TOTAL_BLOCKS = 10
 
 
 class KVBlock:
-    """Represents a single KV Cache block in physical GPU memory."""
+    """
+    Represents a single KV Cache block in physical GPU memory.
+    
+    Matches vLLM's KVCacheBlock schema from:
+    https://docs.vllm.ai/en/latest/design/prefix_caching/
+    """
 
     def __init__(self, block_id: int, block_size: int):
+        # The block ID (immutable)
         self.block_id: int = block_id
+        
+        # Block size - needed for simulation to know when blocks are full
         self.block_size: int = block_size
-        # Token IDs stored in this block (simulates K/V data).
-        self.token_ids: List[int] = []
-        # Number of active requests currently using this block.
+        
+        # The block hash (assigned when block is full, reset on eviction)
+        # In vLLM: BlockHash type, here we use Optional[Tuple[int, ...]]
+        self.block_hash: Optional[Tuple[int, ...]] = None
+        
+        # The number of requests using this block now
+        # (vLLM calls this ref_cnt)
         self.ref_count: int = 0
-        # Tracks if this block has been added to the prefix cache
-        # (i.e., it's a 'cached' block).
-        self.is_cached: bool = False
+        
+        # Pointers to form a doubly linked list for the free queue
+        self.prev_free_block: Optional["KVBlock"] = None
+        self.next_free_block: Optional["KVBlock"] = None
+        
+        # Token IDs stored in this block (for simulation/visualization)
+        # Note: Real vLLM doesn't store token IDs in the block metadata
+        self.token_ids: List[int] = []
 
     def is_full(self) -> bool:
+        """Check if this block is full of tokens."""
         return len(self.token_ids) == self.block_size
+    
+    def is_cached(self) -> bool:
+        """
+        Check if this block is cached.
+        In vLLM, a block is cached if block_hash is set.
+        """
+        return self.block_hash is not None
 
     def __repr__(self) -> str:
-        status = "CACHED" if self.is_cached else "NOT CACHED"
+        status = "CACHED" if self.is_cached() else "NOT CACHED"
         return (
             f"Block(ID={self.block_id}, Tokens={self.token_ids}, "
             f"Refs={self.ref_count}, Status={status})"
@@ -87,7 +112,7 @@ class PrefixCacheManager:
         print(f"Prefix Cache Size: {len(self.prefix_cache)}")
         print("--- Block Pool Summary (Active Blocks) ---")
         for block in self.block_pool.values():
-            if block.ref_count > 0 or block.is_cached:
+            if block.ref_count > 0 or block.is_cached():
                 print(f"  {block}")
         print("----------------------------")
 
@@ -223,6 +248,17 @@ class PrefixCacheManager:
 
             physical_block_id = self.free_block_ids.pop(0)
             new_block = self.block_pool[physical_block_id]
+            
+            # Evict the block if it's cached (LRU eviction)
+            # This matches vLLM behavior: "If the head block is a cached
+            # block, this also evicts the block so that no other requests
+            # can reuse it anymore from now on."
+            if new_block.is_cached():
+                # Remove from cache blocks
+                if new_block.block_hash in self.prefix_cache:
+                    del self.prefix_cache[new_block.block_hash]
+                # Reset block hash to mark as evicted
+                new_block.block_hash = None
 
             # 2. Populate and increment reference count
             new_block.token_ids = block_tokens  # Simulate prefill
@@ -239,7 +275,8 @@ class PrefixCacheManager:
                     tokens_processed, block_tokens
                 )
                 self.prefix_cache[cache_key] = physical_block_id
-                new_block.is_cached = True
+                # Set block_hash to mark this block as cached (vLLM style)
+                new_block.block_hash = cache_key
                 print(
                     f"  [Cache Save] Block ID {physical_block_id} "
                     f"saved to cache (Key Length: {len(cache_key)})."
@@ -300,7 +337,9 @@ class PrefixCacheManager:
                 # We simply add it to the free queue.
                 self.free_block_ids.append(block_id)
 
-                # Reset for next use
+                # Reset for next use (but keep block_hash for potential
+                # reuse unless evicted). According to vLLM docs, block_hash
+                # is reset on eviction, not when just added to free queue.
                 block.token_ids = []
                 print(f"  Block ID {block_id} added back to free queue.")
 

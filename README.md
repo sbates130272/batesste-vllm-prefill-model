@@ -88,10 +88,19 @@ The system uses a free block pool and reference counting:
 
 Represents a single KV cache block in physical GPU memory.
 
-- `block_id`: Unique identifier for the block
-- `token_ids`: List of token IDs stored in this block
-- `ref_count`: Number of requests currently using this block
-- `is_cached`: Flag indicating if the block is in the prefix cache
+**Schema matches official vLLM `KVCacheBlock`** from the [vLLM Prefix
+Caching documentation](https://docs.vllm.ai/en/latest/design/prefix_caching/):
+
+- `block_id`: Unique identifier for the block (immutable)
+- `block_hash`: Hash assigned when block is full, reset on eviction
+- `ref_count`: Number of requests currently using this block (vLLM:
+  `ref_cnt`)
+- `prev_free_block`, `next_free_block`: Pointers for doubly linked list
+  in free queue
+- `block_size`: Size of block (simulation-specific, for knowing when
+  blocks are full)
+- `token_ids`: List of token IDs stored (simulation-specific, for
+  visualization)
 
 #### `SimulatedRequest`
 
@@ -243,14 +252,20 @@ Request Cleanup:
 
 ## Differences from Production vLLM
 
-This is a simplified educational model. Production vLLM includes:
+This is a simplified educational model that **matches the vLLM
+`KVCacheBlock` schema** from the [official documentation](https://docs.vllm.ai/en/latest/design/prefix_caching/).
+
+Production vLLM includes additional features:
 
 - **Advanced Hash Functions**: Parent hash + block tokens + position
-  encoding
-- **LRU Eviction**: Automatic eviction when memory pressure occurs
+  encoding (our simulation uses simplified tuple hashing)
 - **GPU Memory Management**: Actual CUDA memory allocation and management
+  (we simulate with Python objects)
 - **Async Scheduling**: Sophisticated request batching and scheduling
+  (we process synchronously)
 - **Partial Block Handling**: More nuanced handling of partial blocks
+- **Doubly Linked List Operations**: Full O(1) free queue manipulations
+  (we have the data structure but use simpler list operations)
 
 ## Use Cases
 
