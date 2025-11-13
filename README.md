@@ -106,6 +106,12 @@ Features:
 - 🔄 WebSocket-based updates
 - 📝 Event logging
 - 💾 API for programmatic access
+- 🔁 **Continuous generation mode** - simulations run indefinitely, 
+  generating new conversations as old ones complete
+- ⏱️ **Time-based limits** - control simulation duration with time 
+  limits (in seconds, -1 for infinite)
+- 🎯 **Turn-based limits** - stop after N total turns across all 
+  conversations (0 for unlimited)
 
 🌐 **See [docs/WEB_UI.md](docs/WEB_UI.md)** for complete web UI guide.
 

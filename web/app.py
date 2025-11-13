@@ -72,6 +72,7 @@ class SimulationConfig(BaseModel):
     request_rate: float = 0.0
     max_active_conversations: int = 3
     max_total_turns: int = 0  # 0 = unlimited
+    time_limit: int = 60  # seconds, -1 = infinite
     sampling_strategy: str = "round_robin"
     text_mode: bool = False
     dataset_path: Optional[str] = None
@@ -154,7 +155,8 @@ class WebVisualizer:
     def __init__(
         self,
         collector: WebSimulationCollector,
-        max_total_turns: int = 0
+        max_total_turns: int = 0,
+        time_limit: int = 60
     ):
         self.collector = collector
         self.cache_used = 0
@@ -163,8 +165,10 @@ class WebVisualizer:
         self.total_tokens = 0
         self.active_convs_per_client: Dict[int, int] = {}
         self.max_total_turns = max_total_turns
+        self.time_limit = time_limit
         self.total_turns_processed = 0
         self.should_stop = False
+        self.start_time = time.time()
     
     def update_cache_state(self, used_blocks: int):
         """Update cache state."""
@@ -183,7 +187,7 @@ class WebVisualizer:
         # Track turns
         self.total_turns_processed += 1
         
-        # Check if we should stop
+        # Check turn limit
         if (self.max_total_turns > 0 and 
             self.total_turns_processed >= self.max_total_turns):
             self.should_stop = True
@@ -192,6 +196,16 @@ class WebVisualizer:
                 f'Reached max total turns limit '
                 f'({self.max_total_turns}), stopping...'
             )
+        
+        # Check time limit (only if not infinite)
+        if self.time_limit >= 0:
+            elapsed = time.time() - self.start_time
+            if elapsed >= self.time_limit:
+                self.should_stop = True
+                self.collector.add_event(
+                    'info',
+                    f'Reached time limit ({self.time_limit}s), stopping...'
+                )
         
         # Update metrics
         active_convs = sum(self.active_convs_per_client.values())
@@ -276,7 +290,7 @@ async def start_simulation(config: SimulationConfig):
     
     # Store simulation
     active_simulations[sim_id] = {
-        'config': config.dict(),
+        'config': config.model_dump(),
         'collector': collector,
         'status': 'starting'
     }
@@ -351,14 +365,26 @@ async def run_simulation_task(
         # Create visualizer adapter
         visualizer = WebVisualizer(
             collector,
-            max_total_turns=config.max_total_turns
+            max_total_turns=config.max_total_turns,
+            time_limit=config.time_limit
         )
         visualizer.cache_total = config.total_blocks
         
+        # Log limits
         if config.max_total_turns > 0:
             collector.add_event(
                 'info',
                 f'Max total turns limit: {config.max_total_turns}'
+            )
+        if config.time_limit >= 0:
+            collector.add_event(
+                'info',
+                f'Time limit: {config.time_limit} seconds'
+            )
+        elif config.time_limit == -1:
+            collector.add_event(
+                'info',
+                'Time limit: infinite (will run until stopped)'
             )
         
         # Parse sampling strategy
@@ -367,6 +393,21 @@ async def run_simulation_task(
             sampling = ConversationSampling.RANDOM
         
         collector.add_event('info', 'Starting simulation...')
+        
+        # Prepare conversation generator parameters for continuous mode
+        generator_params = {
+            'num_turns_dist': UniformDist(4, 8),
+            'prefix_tokens_dist': LognormalDist(config.prefix_tokens_avg),
+            'user_tokens_dist': UniformDist(
+                config.user_tokens_avg // 2,
+                config.user_tokens_avg + config.user_tokens_avg // 2
+            ),
+            'assistant_tokens_dist': UniformDist(
+                config.assistant_tokens_avg - 20,
+                config.assistant_tokens_avg + 20
+            ),
+            'common_prefix_tokens': config.common_prefix_tokens
+        }
         
         # Run simulation
         client_stats = await run_multi_user_simulation(
@@ -378,7 +419,8 @@ async def run_simulation_task(
             request_rate=config.request_rate,
             max_active_conversations=config.max_active_conversations,
             visualizer=visualizer,
-            verbose=False
+            verbose=False,
+            conversation_generator_params=generator_params
         )
         
         # Finalize
@@ -387,9 +429,14 @@ async def run_simulation_task(
         active_simulations[sim_id]['status'] = 'completed'
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         collector.status = 'error'
         collector.add_event('error', f'Simulation failed: {str(e)}')
+        collector.add_event('error', f'Traceback: {error_details}')
         active_simulations[sim_id]['status'] = 'error'
+        print(f"ERROR in simulation {sim_id}:")
+        print(error_details)
 
 
 @app.get("/api/simulations")

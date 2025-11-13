@@ -295,6 +295,55 @@ def generate_synthetic_conversations(
     return conversations
 
 
+def generate_new_conversation(
+    client_id: int,
+    conv_counter: int,
+    num_turns_dist,
+    prefix_tokens_dist,
+    user_tokens_dist,
+    assistant_tokens_dist,
+    common_prefix_tokens: int
+) -> Conversation:
+    """Generate a new conversation on-the-fly."""
+    conv_id = f"conv_c{client_id}_{conv_counter:04d}"
+    
+    # Generate common and unique prefix
+    common_prefix = list(range(1, common_prefix_tokens + 1))
+    prefix_len = prefix_tokens_dist.sample()
+    # Use client_id and conv_counter to make unique token IDs
+    base_token = 10000 + (client_id * 100000) + (conv_counter * 1000)
+    unique_prefix = list(range(base_token, base_token + prefix_len))
+    token_counter = base_token + prefix_len
+    
+    # Determine number of turns
+    num_turns = max(1, num_turns_dist.sample() // 2)
+    
+    turns = []
+    for turn_idx in range(num_turns):
+        # User message tokens
+        user_len = user_tokens_dist.sample()
+        user_tokens = list(range(token_counter, token_counter + user_len))
+        token_counter += user_len
+        
+        # Assistant response tokens
+        assistant_len = assistant_tokens_dist.sample()
+        assistant_tokens = list(range(
+            token_counter, token_counter + assistant_len
+        ))
+        token_counter += assistant_len
+        
+        # For the first turn, include prefixes
+        if turn_idx == 0:
+            user_tokens = common_prefix + unique_prefix + user_tokens
+        
+        turns.append(ConversationTurn(
+            user_tokens=user_tokens,
+            assistant_tokens=assistant_tokens
+        ))
+    
+    return Conversation(conv_id=conv_id, turns=turns)
+
+
 async def client_worker(
     client_id: int,
     conversations: List[Conversation],
@@ -304,7 +353,8 @@ async def client_worker(
     max_active_conversations: int,
     stats: ClientStats,
     visualizer: Optional[object] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    conversation_generator: Optional[callable] = None
 ) -> None:
     """
     Simulate a single client processing multiple conversations.
@@ -501,12 +551,22 @@ async def client_worker(
                     client_id, len(active_convs)
                 )
             
-            # Add a new conversation if available
+            # Add a new conversation - either from original list or generate
+            new_conv = None
             if next_conv_idx < len(conversations):
+                # Use conversation from original list
                 new_conv = conversations[next_conv_idx]
+                next_conv_idx += 1
+            elif conversation_generator:
+                # Generate new conversation on-the-fly (continuous mode)
+                new_conv = conversation_generator()
+                if verbose:
+                    print(f"[Client {client_id}] Generated new "
+                          f"conversation {new_conv.conv_id}", flush=True)
+            
+            if new_conv:
                 active_convs[new_conv.conv_id] = new_conv
                 conv_queue.appendleft(new_conv.conv_id)
-                next_conv_idx += 1
                 
                 # Update visualizer
                 if visualizer:
@@ -542,7 +602,8 @@ async def run_multi_user_simulation(
     request_rate: float,
     max_active_conversations: int,
     visualizer: Optional[object] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    conversation_generator_params: Optional[Dict] = None
 ) -> Dict[int, ClientStats]:
     """
     Run the multi-user simulation with multiple clients.
@@ -596,6 +657,23 @@ async def run_multi_user_simulation(
         stats = ClientStats(client_id=client_id)
         client_stats[client_id] = stats
         
+        # Create conversation generator if parameters provided
+        generator = None
+        if conversation_generator_params:
+            conv_counter = [0]  # Mutable to track count
+            
+            def make_generator(cid):
+                def gen():
+                    conv_counter[0] += 1
+                    return generate_new_conversation(
+                        client_id=cid,
+                        conv_counter=conv_counter[0],
+                        **conversation_generator_params
+                    )
+                return gen
+            
+            generator = make_generator(client_id)
+        
         task = asyncio.create_task(client_worker(
             client_id=client_id,
             conversations=client_convs,
@@ -605,7 +683,8 @@ async def run_multi_user_simulation(
             max_active_conversations=max_active_conversations,
             stats=stats,
             visualizer=visualizer,
-            verbose=verbose
+            verbose=verbose,
+            conversation_generator=generator
         ))
         tasks.append(task)
     
