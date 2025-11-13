@@ -85,6 +85,30 @@ Benefits of real data:
 📚 **See [docs/SHAREGPT_INTEGRATION.md](docs/SHAREGPT_INTEGRATION.md)**
 for complete guide on using real datasets.
 
+### Web UI
+
+Access the simulator through an **interactive web interface**:
+
+```bash
+# Install web dependencies
+pip install -r web/requirements.txt
+
+# Start web server
+python3 web/app.py
+
+# Open browser to http://localhost:8000
+```
+
+Features:
+- 🎨 Modern, responsive interface
+- ⚡ Real-time visualization with live charts
+- 📊 Interactive configuration
+- 🔄 WebSocket-based updates
+- 📝 Event logging
+- 💾 API for programmatic access
+
+🌐 **See [docs/WEB_UI.md](docs/WEB_UI.md)** for complete web UI guide.
+
 ## Features
 
 - 🔧 **Configurable Parameters**: Adjust block size and total blocks via
