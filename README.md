@@ -23,6 +23,26 @@ python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7"
 python3 src/vllm-prefill-model.py --quiet
 ```
 
+## Multi-User Simulator
+
+For simulating **multiple concurrent users** hitting the system, use
+the multi-user simulator:
+
+```bash
+# Run with 3 clients processing 20 conversations
+python3 src/multi_user_simulator.py
+
+# High-throughput scenario with 10 clients
+python3 src/multi_user_simulator.py --num-clients 10 \
+  --num-conversations 100 --request-rate 2.0
+
+# See all options
+python3 src/multi_user_simulator.py --help
+```
+
+📖 **See the [Multi-User Guide](docs/MULTI_USER_GUIDE.md)** for
+detailed documentation, examples, and use cases.
+
 ## Features
 
 - 🔧 **Configurable Parameters**: Adjust block size and total blocks via
