@@ -1,6 +1,8 @@
 # vLLM Prefill Model Simulator
 
-A Python simulation of vLLM's PagedAttention and Prefix Caching mechanisms for understanding how Key-Value (KV) cache blocks are allocated, reused, and managed during LLM inference.
+A Python simulation of vLLM's PagedAttention and Prefix Caching mechanisms
+for understanding how Key-Value (KV) cache blocks are allocated, reused, and
+managed during LLM inference.
 
 ## Quick Start
 
@@ -23,26 +25,34 @@ python3 src/vllm-prefill-model.py --quiet
 
 ## Features
 
-- 🔧 **Configurable Parameters**: Adjust block size and total blocks via command-line arguments
+- 🔧 **Configurable Parameters**: Adjust block size and total blocks via
+  command-line arguments
 - 🎯 **Custom Prompts**: Test your own token sequences and prefix patterns
-- 📊 **Detailed Logging**: Observe cache hits/misses and block allocation in real-time
+- 📊 **Detailed Logging**: Observe cache hits/misses and block allocation
+  in real-time
 - 🤫 **Quiet Mode**: Reduce verbosity for cleaner output
-- 🎓 **Educational**: Clear visualization of vLLM's memory management internals
+- 🎓 **Educational**: Clear visualization of vLLM's memory management
+  internals
 - 🐍 **Pure Python**: No external dependencies required
 
 ## Overview
 
-This project provides an educational implementation of vLLM's memory management system, specifically focusing on:
+This project provides an educational implementation of vLLM's memory
+management system, specifically focusing on:
 
-- **PagedAttention**: A memory-efficient attention mechanism that divides KV cache into fixed-size blocks
-- **Prefix Caching**: A technique to reuse computed KV cache blocks across requests with shared prompt prefixes
-- **Reference Counting**: Memory management through reference counting to enable safe block sharing and deallocation
+- **PagedAttention**: A memory-efficient attention mechanism that divides
+  KV cache into fixed-size blocks
+- **Prefix Caching**: A technique to reuse computed KV cache blocks across
+  requests with shared prompt prefixes
+- **Reference Counting**: Memory management through reference counting to
+  enable safe block sharing and deallocation
 
 ## Key Concepts
 
 ### KV Cache Blocks
 
-The KV (Key-Value) cache stores attention keys and values for previously processed tokens. In this simulation:
+The KV (Key-Value) cache stores attention keys and values for previously
+processed tokens. In this simulation:
 
 - Blocks are fixed-size containers (default: 4 tokens per block)
 - Each block tracks:
@@ -52,12 +62,14 @@ The KV (Key-Value) cache stores attention keys and values for previously process
 
 ### Prefix Caching
 
-Prefix caching allows multiple requests with shared prompt prefixes to reuse the same KV cache blocks:
+Prefix caching allows multiple requests with shared prompt prefixes to
+reuse the same KV cache blocks:
 
 - Full blocks (completely filled) are cached for reuse
 - Partial blocks (not full) are not cached
 - Cache keys are generated from the token sequence
-- Blocks can be shared across multiple concurrent requests through reference counting
+- Blocks can be shared across multiple concurrent requests through
+  reference counting
 
 ### Memory Management
 
@@ -65,7 +77,8 @@ The system uses a free block pool and reference counting:
 
 - **Free Queue**: List of available block IDs for allocation
 - **Reference Counting**: Tracks how many requests use each block
-- **Deallocation**: Blocks with `ref_count == 0` are returned to the free queue
+- **Deallocation**: Blocks with `ref_count == 0` are returned to the free
+  queue
 
 ## Architecture
 
@@ -94,7 +107,8 @@ Main orchestrator for the caching and memory management system.
 
 **Key Methods:**
 
-- `process_request()`: Processes a new request, attempting to reuse cached blocks
+- `process_request()`: Processes a new request, attempting to reuse
+  cached blocks
 - `free_request()`: Frees blocks associated with a finished request
 - `get_status()`: Displays current system state
 - `_generate_cache_key()`: Generates hash keys for prefix cache lookup
@@ -104,9 +118,12 @@ Main orchestrator for the caching and memory management system.
 The simulation can be configured via command-line arguments:
 
 - `--block-size`, `-b`: Number of tokens per KV cache block (default: 4)
-- `--total-blocks`, `-t`: Total number of blocks in the cache pool (default: 10)
-- `--prompts`, `-p`: Custom prompt token sequences (space or comma-separated integers)
-- `--quiet`, `-q`: Reduce output verbosity (hide status after each operation)
+- `--total-blocks`, `-t`: Total number of blocks in the cache pool
+  (default: 10)
+- `--prompts`, `-p`: Custom prompt token sequences (space or
+  comma-separated integers)
+- `--quiet`, `-q`: Reduce output verbosity (hide status after each
+  operation)
 
 ## Running the Simulation
 
@@ -132,13 +149,16 @@ python3 src/vllm-prefill-model.py --help
 python3 src/vllm-prefill-model.py --block-size 8 --total-blocks 20
 
 # Run with custom prompts (test your own scenarios)
-python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7" "1,2,3,4,5"
+python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7"
 
 # Quiet mode (less verbose output)
 python3 src/vllm-prefill-model.py --quiet
 
 # Combine options
-python3 src/vllm-prefill-model.py --block-size 4 --prompts "1,2,3,4" "1,2,3,5" --quiet
+python3 src/vllm-prefill-model.py \
+  --block-size 4 \
+  --prompts "1,2,3,4" "1,2,3,5" \
+  --quiet
 ```
 
 ### Example Output
@@ -159,15 +179,20 @@ The default simulation (no custom prompts) demonstrates three scenarios:
    - Reuses first 2 blocks (8 tokens) from A/B
    - Allocates new blocks for divergent suffix
 
-The simulation then demonstrates proper cleanup by freeing requests and showing how reference counting prevents premature deallocation of shared blocks.
+The simulation then demonstrates proper cleanup by freeing requests and
+showing how reference counting prevents premature deallocation of shared
+blocks.
 
 #### Custom Prompts
 
-When using `--prompts`, you can define your own test scenarios with custom token sequences. Each prompt should be a sequence of comma or space-separated integers representing token IDs:
+When using `--prompts`, you can define your own test scenarios with custom
+token sequences. Each prompt should be a sequence of comma or
+space-separated integers representing token IDs:
 
 ```bash
 # Test prefix caching with custom token sequences
-python3 src/vllm-prefill-model.py --prompts "1,2,3,4,5,6" "1,2,3,7,8,9" "10,11,12,13"
+python3 src/vllm-prefill-model.py \
+  --prompts "1,2,3,4,5,6" "1,2,3,7,8,9" "10,11,12,13"
 ```
 
 This is useful for:
@@ -200,21 +225,28 @@ Request Cleanup:
 
 ### Cache Efficiency
 
-- **Full Block Caching**: Only complete blocks are cached to simplify key generation
-- **Prefix Matching**: Requests with shared prefixes benefit from cached blocks
-- **Memory Reuse**: Reference counting enables safe sharing across concurrent requests
+- **Full Block Caching**: Only complete blocks are cached to simplify key
+  generation
+- **Prefix Matching**: Requests with shared prefixes benefit from cached
+  blocks
+- **Memory Reuse**: Reference counting enables safe sharing across
+  concurrent requests
 
 ### Design Decisions
 
-1. **Simplified Hashing**: Uses tuple of all tokens as cache key (real vLLM uses more sophisticated hashing)
-2. **No Eviction Policy**: Simulation assumes sufficient memory (production systems implement LRU eviction)
-3. **Synchronous Processing**: Real vLLM handles concurrent requests asynchronously
+1. **Simplified Hashing**: Uses tuple of all tokens as cache key (real
+   vLLM uses more sophisticated hashing)
+2. **No Eviction Policy**: Simulation assumes sufficient memory
+   (production systems implement LRU eviction)
+3. **Synchronous Processing**: Real vLLM handles concurrent requests
+   asynchronously
 
 ## Differences from Production vLLM
 
 This is a simplified educational model. Production vLLM includes:
 
-- **Advanced Hash Functions**: Parent hash + block tokens + position encoding
+- **Advanced Hash Functions**: Parent hash + block tokens + position
+  encoding
 - **LRU Eviction**: Automatic eviction when memory pressure occurs
 - **GPU Memory Management**: Actual CUDA memory allocation and management
 - **Async Scheduling**: Sophisticated request batching and scheduling
@@ -233,7 +265,8 @@ This simulation is useful for:
 
 Potential enhancements:
 
-1. **Add LRU Eviction**: Implement proper eviction when free queue is empty
+1. **Add LRU Eviction**: Implement proper eviction when free queue is
+   empty
 2. **Metrics Collection**: Track cache hit rates, memory utilization
 3. **Visualization**: Add graphical representation of block allocation
 4. **Concurrent Requests**: Simulate multiple simultaneous requests
@@ -251,4 +284,5 @@ This is an educational project for understanding vLLM internals.
 
 ## Author
 
-Created as a learning resource for understanding vLLM's PagedAttention and Prefix Caching mechanisms.
+Created as a learning resource for understanding vLLM's PagedAttention and
+Prefix Caching mechanisms.

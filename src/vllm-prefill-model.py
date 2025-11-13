@@ -6,8 +6,10 @@ from typing import List, Dict, Optional, Tuple
 DEFAULT_BLOCK_SIZE = 4
 DEFAULT_TOTAL_BLOCKS = 10
 
+
 class KVBlock:
     """Represents a single KV Cache block in physical GPU memory."""
+
     def __init__(self, block_id: int, block_size: int):
         self.block_id: int = block_id
         self.block_size: int = block_size
@@ -15,7 +17,8 @@ class KVBlock:
         self.token_ids: List[int] = []
         # Number of active requests currently using this block.
         self.ref_count: int = 0
-        # Tracks if this block has been added to the prefix cache (i.e., it's a 'cached' block).
+        # Tracks if this block has been added to the prefix cache
+        # (i.e., it's a 'cached' block).
         self.is_cached: bool = False
 
     def is_full(self) -> bool:
@@ -23,25 +26,35 @@ class KVBlock:
 
     def __repr__(self) -> str:
         status = "CACHED" if self.is_cached else "NOT CACHED"
-        return (f"Block(ID={self.block_id}, Tokens={self.token_ids}, "
-                f"Refs={self.ref_count}, Status={status})")
+        return (
+            f"Block(ID={self.block_id}, Tokens={self.token_ids}, "
+            f"Refs={self.ref_count}, Status={status})"
+        )
+
 
 class SimulatedRequest:
     """Represents a single inference request."""
+
     def __init__(self, request_id: str, prompt_tokens: List[int]):
         self.request_id = request_id
         self.prompt_tokens = prompt_tokens
-        # Maps logical token index to physical block ID (the Block Table).
+        # Maps logical token index to physical block ID
+        # (the Block Table).
         self.block_table: List[int] = []
 
     def __repr__(self):
-        return (f"Request(ID={self.request_id}, Prompt_Len={len(self.prompt_tokens)}, "
-                f"Block_Table={self.block_table})")
+        return (
+            f"Request(ID={self.request_id}, "
+            f"Prompt_Len={len(self.prompt_tokens)}, "
+            f"Block_Table={self.block_table})"
+        )
+
 
 class PrefixCacheManager:
     """
     Simulates vLLM's PagedAttention and Prefix Caching mechanisms.
     """
+
     def __init__(self, total_blocks: int, block_size: int):
         self.total_blocks = total_blocks
         self.block_size = block_size
@@ -51,11 +64,13 @@ class PrefixCacheManager:
             i: KVBlock(i, block_size) for i in range(total_blocks)
         }
 
-        # Free Queue (list of available block IDs - acts as LRU/FIFO if used as a queue)
+        # Free Queue (list of available block IDs - acts as LRU/FIFO
+        # if used as a queue)
         self.free_block_ids: List[int] = list(range(total_blocks))
 
         # Prefix Cache (Hash Map):
-        # Key: Tuple of tokens (simulated hash key: tuple[prefix_tokens, block_tokens])
+        # Key: Tuple of tokens (simulated hash key:
+        #      tuple[prefix_tokens, block_tokens])
         # Value: KVBlock ID
         self.prefix_cache: Dict[Tuple[int, ...], int] = {}
 
@@ -65,7 +80,10 @@ class PrefixCacheManager:
     def get_status(self):
         """Prints the current state of the system."""
         print("--- Cache Manager Status ---")
-        print(f"Total Blocks: {self.total_blocks}, Free Blocks: {len(self.free_block_ids)}")
+        print(
+            f"Total Blocks: {self.total_blocks}, "
+            f"Free Blocks: {len(self.free_block_ids)}"
+        )
         print(f"Prefix Cache Size: {len(self.prefix_cache)}")
         print("--- Block Pool Summary (Active Blocks) ---")
         for block in self.block_pool.values():
@@ -73,23 +91,30 @@ class PrefixCacheManager:
                 print(f"  {block}")
         print("----------------------------")
 
-    def _generate_cache_key(self, prefix_tokens: List[int], block_tokens: List[int]) -> Tuple[int, ...]:
+    def _generate_cache_key(
+        self, prefix_tokens: List[int], block_tokens: List[int]
+    ) -> Tuple[int, ...]:
         """
-        Generates the simplified hash key: (token_id_1, token_id_2, ..., token_id_N).
-        In real vLLM, this is more complex (parent hash + block tokens + extra hashes).
+        Generates the simplified hash key:
+        (token_id_1, token_id_2, ..., token_id_N).
+        In real vLLM, this is more complex (parent hash + block tokens
+        + extra hashes).
         We use all tokens up to this block to ensure uniqueness.
         """
-        # The key is the sequence of all tokens from the start of the prompt up to and including the current block's tokens.
+        # The key is the sequence of all tokens from the start of the
+        # prompt up to and including the current block's tokens.
         return tuple(prefix_tokens + block_tokens)
 
     def allocate_block(self, block: KVBlock) -> int:
         """Increments ref count and allocates a physical block ID."""
         if not self.free_block_ids:
-            # Simple eviction policy: just say memory is full for this demo
+            # Simple eviction policy: just say memory is full for
+            # this demo
             print("ERROR: KV Cache is full. Cannot allocate new block.")
             return -1
 
-        # Get an available physical block ID from the free queue (usually FIFO/LRU)
+        # Get an available physical block ID from the free queue
+        # (usually FIFO/LRU)
         physical_block_id = self.free_block_ids.pop(0)
 
         # Update the block in the pool
@@ -104,12 +129,14 @@ class PrefixCacheManager:
         """
         print(f"\n--- Processing New Request: {request.request_id} ---")
 
-        # The block table holds the mapping from logical block index to physical block ID.
+        # The block table holds the mapping from logical block index
+        # to physical block ID.
         block_table: List[int] = []
 
         prompt_tokens = request.prompt_tokens
 
-        # Track the tokens processed so far for generating the prefix hash key
+        # Track the tokens processed so far for generating the prefix
+        # hash key
         tokens_processed: List[int] = []
 
         current_token_idx = 0
@@ -120,11 +147,16 @@ class PrefixCacheManager:
 
             # 1. Identify the tokens for the next block
             start = current_token_idx
-            end = min(current_token_idx + self.block_size, len(prompt_tokens))
+            end = min(
+                current_token_idx + self.block_size,
+                len(prompt_tokens)
+            )
             block_tokens = prompt_tokens[start:end]
 
             # 2. Generate the cache lookup key
-            cache_key = self._generate_cache_key(tokens_processed, block_tokens)
+            cache_key = self._generate_cache_key(
+                tokens_processed, block_tokens
+            )
 
             # 3. Check for prefix cache hit
             cached_block_id = self.prefix_cache.get(cache_key)
@@ -132,61 +164,86 @@ class PrefixCacheManager:
             if cached_block_id is not None:
                 # --- CACHE HIT ---
 
-                # Check for partial hit: In vLLM, partial hits on a block stop caching.
-                # Here, we only cache/reuse full blocks to simplify the model, as suggested
-                # by the documentation: "We only cache full blocks."
+                # Check for partial hit: In vLLM, partial hits on a
+                # block stop caching. Here, we only cache/reuse full
+                # blocks to simplify the model, as suggested by the
+                # documentation: "We only cache full blocks."
                 if len(block_tokens) == self.block_size:
                     # Full Block Hit - REUSE
                     hit_block = self.block_pool[cached_block_id]
                     hit_block.ref_count += 1
                     block_table.append(cached_block_id)
                     cache_hit_count += len(block_tokens)
-                    print(f"  [Cache Hit] Reusing Block ID {cached_block_id} for tokens {block_tokens}. Refs: {hit_block.ref_count}")
+                    print(
+                        f"  [Cache Hit] Reusing Block ID "
+                        f"{cached_block_id} for tokens {block_tokens}. "
+                        f"Refs: {hit_block.ref_count}"
+                    )
 
                     # Update tokens_processed for the next block's prefix
                     tokens_processed.extend(block_tokens)
                     current_token_idx = end
 
                 else:
-                    # Partial Block Hit or end of prompt. Stop caching/reuse.
-                    # The rest of the prompt must be allocated anew.
-                    print(f"  [Partial Match] Block {block_tokens} found, but it's the end of prompt. Allocation begins now.")
+                    # Partial Block Hit or end of prompt. Stop
+                    # caching/reuse. The rest of the prompt must be
+                    # allocated anew.
+                    print(
+                        f"  [Partial Match] Block {block_tokens} found, "
+                        f"but it's the end of prompt. "
+                        f"Allocation begins now."
+                    )
                     break  # Exit caching loop, move to allocation stage
 
             else:
                 # --- CACHE MISS or Allocation Begins ---
-                print(f"  [Cache Miss] Block {block_tokens} not found in cache. Allocating new blocks.")
+                print(
+                    f"  [Cache Miss] Block {block_tokens} not found in "
+                    f"cache. Allocating new blocks."
+                )
                 break  # Exit caching loop, move to allocation stage
 
         # --- Allocation & Prefill Stage (for the rest of the prompt) ---
 
-        # Start allocation from where the cache hit stopped (current_token_idx)
+        # Start allocation from where the cache hit stopped
+        # (current_token_idx)
         while current_token_idx < len(prompt_tokens):
 
             start = current_token_idx
-            end = min(current_token_idx + self.block_size, len(prompt_tokens))
+            end = min(
+                current_token_idx + self.block_size,
+                len(prompt_tokens)
+            )
             block_tokens = prompt_tokens[start:end]
 
             # 1. Allocate a new physical block
             if not self.free_block_ids:
-                print(f"  [Allocation Failed] Ran out of free blocks.")
+                print("  [Allocation Failed] Ran out of free blocks.")
                 break
 
             physical_block_id = self.free_block_ids.pop(0)
             new_block = self.block_pool[physical_block_id]
 
             # 2. Populate and increment reference count
-            new_block.token_ids = block_tokens  # Simulate prefill/computation
+            new_block.token_ids = block_tokens  # Simulate prefill
             new_block.ref_count += 1
             block_table.append(physical_block_id)
-            print(f"  [Allocation] Allocated Block ID {physical_block_id} for tokens {block_tokens}.")
+            print(
+                f"  [Allocation] Allocated Block ID {physical_block_id} "
+                f"for tokens {block_tokens}."
+            )
 
             # 3. Save to Prefix Cache (only if full)
             if new_block.is_full():
-                cache_key = self._generate_cache_key(tokens_processed, block_tokens)
+                cache_key = self._generate_cache_key(
+                    tokens_processed, block_tokens
+                )
                 self.prefix_cache[cache_key] = physical_block_id
                 new_block.is_cached = True
-                print(f"  [Cache Save] Block ID {physical_block_id} saved to cache (Key Length: {len(cache_key)}).")
+                print(
+                    f"  [Cache Save] Block ID {physical_block_id} "
+                    f"saved to cache (Key Length: {len(cache_key)})."
+                )
 
             # Update indices for the next iteration
             tokens_processed.extend(block_tokens)
@@ -194,34 +251,51 @@ class PrefixCacheManager:
 
         request.block_table = block_table
         self.active_requests.append(request)
-        print(f"  Request {request.request_id} finished processing. Blocks used: {request.block_table}")
-        print(f"  Total tokens computed (not cached): {len(prompt_tokens) - cache_hit_count}")
+        print(
+            f"  Request {request.request_id} finished processing. "
+            f"Blocks used: {request.block_table}"
+        )
+        print(
+            f"  Total tokens computed (not cached): "
+            f"{len(prompt_tokens) - cache_hit_count}"
+        )
         return cache_hit_count
 
     def free_request(self, request: SimulatedRequest):
         """
-        Frees blocks associated with a finished request by decrementing ref counts.
-        Blocks with ref_count == 0 are returned to the free queue.
+        Frees blocks associated with a finished request by decrementing
+        ref counts. Blocks with ref_count == 0 are returned to the free
+        queue.
         """
         print(f"\n--- Freeing Request: {request.request_id} ---")
 
-        # Free blocks in reverse order, as suggested by vLLM (to prioritize evicting less reusable blocks)
+        # Free blocks in reverse order, as suggested by vLLM (to
+        # prioritize evicting less reusable blocks)
         for block_id in reversed(request.block_table):
             block = self.block_pool[block_id]
             block.ref_count -= 1
 
-            print(f"  Block ID {block_id}: Ref Count Decremented to {block.ref_count}.")
+            print(
+                f"  Block ID {block_id}: Ref Count Decremented to "
+                f"{block.ref_count}."
+            )
 
             if block.ref_count == 0:
-                # Block is no longer used by any request. Return it to the free queue.
+                # Block is no longer used by any request. Return it to
+                # the free queue.
 
-                # Check if it was a cached block. If so, its cache entry must be removed *if* we wanted
-                # to strictly enforce LRU eviction, but for simplicity we only remove it from free_ids.
-                # The block remains *cached* (is_cached=True) but is available for reuse or eviction if needed later.
+                # Check if it was a cached block. If so, its cache
+                # entry must be removed *if* we wanted to strictly
+                # enforce LRU eviction, but for simplicity we only
+                # remove it from free_ids. The block remains *cached*
+                # (is_cached=True) but is available for reuse or
+                # eviction if needed later.
 
-                # The vLLM docs show blocks being added to the free queue even if cached.
-                # Eviction (LRU) happens only when memory pressure requires freeing a block
-                # from the head of the free queue *and* removing it from the cache.
+                # The vLLM docs show blocks being added to the free
+                # queue even if cached. Eviction (LRU) happens only
+                # when memory pressure requires freeing a block from
+                # the head of the free queue *and* removing it from
+                # the cache.
 
                 # We simply add it to the free queue.
                 self.free_block_ids.append(block_id)
@@ -235,19 +309,26 @@ class PrefixCacheManager:
         print(f"Request {request.request_id} freed successfully.")
 
 
-def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLOCKS, 
-                   custom_prompts=None, verbose=True):
+def run_simulation(
+    block_size=DEFAULT_BLOCK_SIZE,
+    total_blocks=DEFAULT_TOTAL_BLOCKS,
+    custom_prompts=None,
+    verbose=True
+):
     """
     Run the vLLM prefix caching simulation.
-    
+
     Args:
         block_size: Number of tokens per block
         total_blocks: Total number of blocks in the pool
         custom_prompts: Optional list of custom prompt token lists
         verbose: Whether to print detailed status information
     """
-    manager = PrefixCacheManager(total_blocks=total_blocks, block_size=block_size)
-    print(f"Starting simulation with {total_blocks} blocks, size {block_size}.")
+    manager = PrefixCacheManager(
+        total_blocks=total_blocks, block_size=block_size
+    )
+    print(f"Starting simulation with {total_blocks} blocks, size "
+          f"{block_size}.")
     if verbose:
         manager.get_status()
 
@@ -265,7 +346,7 @@ def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLO
             if verbose:
                 manager.get_status()
             requests.append(req)
-        
+
         # Free all requests
         for req in requests:
             manager.free_request(req)
@@ -274,9 +355,10 @@ def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLO
         return
 
     # --- Default Simulation ---
-    
+
     # --- Time 1: Request A (Full Prompt Allocation & Caching) ---
-    prompt_a_tokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # 11 tokens -> 3 full blocks + 1 partial block
+    # 11 tokens -> 3 full blocks + 1 partial block
+    prompt_a_tokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     req_a = SimulatedRequest(
         request_id=str(uuid.uuid4())[:8],
         prompt_tokens=prompt_a_tokens
@@ -298,8 +380,10 @@ def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLO
         manager.get_status()
 
     # --- Time 3: Request C (Partial Prefix Match) ---
-    # This prompt matches the first 8 tokens (2 full blocks) of A/B, then forks.
-    # [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14] -> B0, B1 reused. B2, B3 allocated.
+    # This prompt matches the first 8 tokens (2 full blocks) of A/B,
+    # then forks.
+    # [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14] -> B0, B1 reused.
+    # B2, B3 allocated.
     prompt_c_tokens = [1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15]  # 12 tokens
     req_c = SimulatedRequest(
         request_id=str(uuid.uuid4())[:8],
@@ -312,15 +396,19 @@ def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLO
 
     # --- Time 4: Free Request A ---
     # Blocks 0, 1 are still in use by B and C (ref_count > 0).
-    # Blocks 2, 3 are only used by A. They will be freed and returned to the free queue.
+    # Blocks 2, 3 are only used by A. They will be freed and returned
+    # to the free queue.
     manager.free_request(req_a)
     if verbose:
         manager.get_status()
 
     # --- Time 5: Free Request B ---
-    # Blocks 0, 1, 2, 3 were used by B. Blocks 0, 1 are still used by C (ref_count > 0).
-    # Blocks 2, 3 are now only used by B's old ref (which is now 0) and will be freed, but wait...
-    # Blocks 2 and 3 have ref_count=1 (from A) after Time 4, then B re-used them.
+    # Blocks 0, 1, 2, 3 were used by B. Blocks 0, 1 are still used by C
+    # (ref_count > 0).
+    # Blocks 2, 3 are now only used by B's old ref (which is now 0) and
+    # will be freed, but wait...
+    # Blocks 2 and 3 have ref_count=1 (from A) after Time 4, then B
+    # re-used them.
     # Let's check the current ref counts:
     # B0: Refs=2 (from B, C)
     # B1: Refs=2 (from B, C)
@@ -351,7 +439,8 @@ def run_simulation(block_size=DEFAULT_BLOCK_SIZE, total_blocks=DEFAULT_TOTAL_BLO
     manager.free_request(req_c)
     if verbose:
         manager.get_status()
-    # All blocks are now back in the free queue, available for the next request.
+    # All blocks are now back in the free queue, available for the
+    # next request.
 
 
 def parse_prompt_arg(prompt_str):
@@ -362,72 +451,81 @@ def parse_prompt_arg(prompt_str):
     # Replace spaces with commas for uniform parsing
     prompt_str = prompt_str.replace(' ', ',')
     try:
-        return [int(x.strip()) for x in prompt_str.split(',') if x.strip()]
+        return [
+            int(x.strip()) for x in prompt_str.split(',') if x.strip()
+        ]
     except ValueError as e:
-        raise argparse.ArgumentTypeError(f"Invalid prompt format. Use comma or space-separated integers: {e}")
+        raise argparse.ArgumentTypeError(
+            f"Invalid prompt format. Use comma or space-separated "
+            f"integers: {e}"
+        )
 
 
 def main():
     """Main entry point with argument parsing."""
     parser = argparse.ArgumentParser(
-        description='Simulate vLLM PagedAttention and Prefix Caching mechanisms',
+        description='Simulate vLLM PagedAttention and Prefix Caching '
+                    'mechanisms',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Run with default settings
   python3 vllm-prefill-model.py
-  
+
   # Configure block size and total blocks
   python3 vllm-prefill-model.py --block-size 8 --total-blocks 20
-  
+
   # Run with custom prompts
-  python3 vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7" "1,2,3,4,5"
-  
+  python3 vllm-prefill-model.py --prompts "1,2,3,4,5" "1,2,3,6,7"
+
   # Quiet mode (less verbose output)
   python3 vllm-prefill-model.py --quiet
-  
+
   # Combine options
-  python3 vllm-prefill-model.py --block-size 4 --prompts "1,2,3,4" "1,2,3,5" --quiet
+  python3 vllm-prefill-model.py --block-size 4 \\
+    --prompts "1,2,3,4" "1,2,3,5" --quiet
         """
     )
-    
+
     parser.add_argument(
         '--block-size', '-b',
         type=int,
         default=DEFAULT_BLOCK_SIZE,
-        help=f'Number of tokens per KV cache block (default: {DEFAULT_BLOCK_SIZE})'
+        help=f'Number of tokens per KV cache block '
+             f'(default: {DEFAULT_BLOCK_SIZE})'
     )
-    
+
     parser.add_argument(
         '--total-blocks', '-t',
         type=int,
         default=DEFAULT_TOTAL_BLOCKS,
-        help=f'Total number of blocks in the cache pool (default: {DEFAULT_TOTAL_BLOCKS})'
+        help=f'Total number of blocks in the cache pool '
+             f'(default: {DEFAULT_TOTAL_BLOCKS})'
     )
-    
+
     parser.add_argument(
         '--prompts', '-p',
         nargs='+',
         type=parse_prompt_arg,
         metavar='PROMPT',
-        help='Custom prompt token sequences (space or comma-separated integers). '
-             'Example: --prompts "1,2,3,4" "1,2,3,5"'
+        help='Custom prompt token sequences (space or comma-separated '
+             'integers). Example: --prompts "1,2,3,4" "1,2,3,5"'
     )
-    
+
     parser.add_argument(
         '--quiet', '-q',
         action='store_true',
         help='Reduce output verbosity (hide status after each operation)'
     )
-    
+
     args = parser.parse_args()
-    
+
     # Validate arguments
     if args.block_size <= 0:
         parser.error("Block size must be positive")
     if args.total_blocks <= 0:
         parser.error("Total blocks must be positive")
-    
+
     # Run simulation with parsed arguments
     run_simulation(
         block_size=args.block_size,
