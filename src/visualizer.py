@@ -42,6 +42,8 @@ class SimulationVisualizer:
         self.cache_used = deque(maxlen=100)
         self.hitrate_timestamps = deque(maxlen=100)
         self.cache_hit_rates = deque(maxlen=100)
+        self.total_convs_timestamps = deque(maxlen=100)
+        self.total_active_convs = deque(maxlen=100)
         self.client_requests = {i: 0 for i in range(num_clients)}
         self.client_cache_hits = {i: 0 for i in range(num_clients)}
         self.client_input_tokens = {i: 0 for i in range(num_clients)}
@@ -54,17 +56,20 @@ class SimulationVisualizer:
         # Event log for timeline
         self.events = deque(maxlen=50)
         
+        # Conversation snippets for text display
+        self.conversation_texts = deque(maxlen=10)
+        
         # Setup matplotlib figure
         plt.ion()  # Interactive mode
-        self.fig = plt.figure(figsize=(14, 10))
+        self.fig = plt.figure(figsize=(16, 12))
         self.fig.suptitle(
             'vLLM Multi-User Simulator - Real-Time Dashboard',
             fontsize=16,
             fontweight='bold'
         )
         
-        # Create grid layout
-        gs = GridSpec(3, 2, figure=self.fig, hspace=0.4, wspace=0.3)
+        # Create grid layout - now 5 rows, 2 columns
+        gs = GridSpec(5, 2, figure=self.fig, hspace=0.4, wspace=0.3)
         
         # Subplot 1: Cache Occupancy
         self.ax_cache = self.fig.add_subplot(gs[0, 0])
@@ -80,20 +85,37 @@ class SimulationVisualizer:
         self.ax_hitrate.set_ylabel('Hit Rate (%)')
         self.ax_hitrate.set_ylim(0, 100)
         
-        # Subplot 3: Per-Client Requests
-        self.ax_requests = self.fig.add_subplot(gs[1, 0])
+        # Subplot 3: Total Active Conversations Over Time
+        self.ax_total_convs = self.fig.add_subplot(gs[1, :])
+        self.ax_total_convs.set_title(
+            'Total Active Conversations Over Time',
+            fontweight='bold'
+        )
+        self.ax_total_convs.set_xlabel('Time (s)')
+        self.ax_total_convs.set_ylabel('Active Conversations')
+        
+        # Subplot 4: Per-Client Requests
+        self.ax_requests = self.fig.add_subplot(gs[2, 0])
         self.ax_requests.set_title('Requests per Client', fontweight='bold')
         self.ax_requests.set_xlabel('Client ID')
         self.ax_requests.set_ylabel('Total Requests')
         
-        # Subplot 4: Active Conversations
-        self.ax_convs = self.fig.add_subplot(gs[1, 1])
-        self.ax_convs.set_title('Active Conversations', fontweight='bold')
+        # Subplot 5: Active Conversations per Client
+        self.ax_convs = self.fig.add_subplot(gs[2, 1])
+        self.ax_convs.set_title('Active Conversations per Client', fontweight='bold')
         self.ax_convs.set_xlabel('Client ID')
         self.ax_convs.set_ylabel('Active Conversations')
         
-        # Subplot 5: Event Timeline (bottom, spans both columns)
-        self.ax_events = self.fig.add_subplot(gs[2, :])
+        # Subplot 6: Conversation Snippets (row 3, spans both columns)
+        self.ax_conversations = self.fig.add_subplot(gs[3, :])
+        self.ax_conversations.set_title(
+            'Live Conversation Snippets',
+            fontweight='bold'
+        )
+        self.ax_conversations.axis('off')
+        
+        # Subplot 7: Event Timeline (bottom, spans both columns)
+        self.ax_events = self.fig.add_subplot(gs[4, :])
         self.ax_events.set_title('Recent Events', fontweight='bold')
         self.ax_events.axis('off')
         
@@ -149,6 +171,12 @@ class SimulationVisualizer:
         """Update active conversation count for a client."""
         with self.lock:
             self.client_active_convs[client_id] = active_count
+            
+            # Track total active conversations across all clients
+            total_active = sum(self.client_active_convs.values())
+            elapsed = time.time() - self.start_time
+            self.total_convs_timestamps.append(elapsed)
+            self.total_active_convs.append(total_active)
     
     def add_event(self, event: str):
         """Add an event to the timeline."""
@@ -156,14 +184,42 @@ class SimulationVisualizer:
             elapsed = time.time() - self.start_time
             self.events.append(f"[{elapsed:6.2f}s] {event}")
     
+    def add_conversation_snippet(
+        self,
+        client_id: int,
+        conv_id: str,
+        turn: int,
+        text: str,
+        is_user: bool = True
+    ):
+        """
+        Add a conversation snippet to display.
+        
+        Args:
+            client_id: Client ID
+            conv_id: Conversation ID
+            turn: Turn number
+            text: Text content (truncated if needed)
+            is_user: True for user message, False for assistant
+        """
+        with self.lock:
+            role = "User" if is_user else "Assistant"
+            # Truncate long text
+            if len(text) > 80:
+                text = text[:77] + "..."
+            snippet = f"[C{client_id} {conv_id} T{turn}] {role}: {text}"
+            self.conversation_texts.append(snippet)
+    
     def _update_plot(self, frame):
         """Internal method to update all plots (called by animation)."""
         with self.lock:
             # Clear all axes
             self.ax_cache.clear()
             self.ax_hitrate.clear()
+            self.ax_total_convs.clear()
             self.ax_requests.clear()
             self.ax_convs.clear()
+            self.ax_conversations.clear()
             self.ax_events.clear()
             
             # Plot 1: Cache Occupancy
@@ -220,7 +276,44 @@ class SimulationVisualizer:
                         )
                     )
             
-            # Plot 3: Per-Client Requests
+            # Plot 3: Total Active Conversations Over Time
+            self.ax_total_convs.set_title(
+                'Total Active Conversations Over Time',
+                fontweight='bold'
+            )
+            self.ax_total_convs.set_xlabel('Time (s)')
+            self.ax_total_convs.set_ylabel('Active Conversations')
+            if len(self.total_convs_timestamps) > 0 and \
+               len(self.total_active_convs) > 0:
+                times = list(self.total_convs_timestamps)
+                convs = list(self.total_active_convs)
+                self.ax_total_convs.plot(
+                    times, convs, 'purple', linewidth=2.5, marker='o',
+                    markersize=4
+                )
+                self.ax_total_convs.fill_between(
+                    times, 0, convs, alpha=0.3, color='purple'
+                )
+                self.ax_total_convs.grid(True, alpha=0.3)
+                
+                # Add current total text
+                if convs:
+                    current_total = convs[-1]
+                    max_total = max(convs) if convs else 0
+                    self.ax_total_convs.text(
+                        0.02, 0.98,
+                        f'Current: {int(current_total)} | '
+                        f'Peak: {int(max_total)}',
+                        transform=self.ax_total_convs.transAxes,
+                        verticalalignment='top',
+                        bbox=dict(
+                            boxstyle='round',
+                            facecolor='lavender',
+                            alpha=0.8
+                        )
+                    )
+            
+            # Plot 4: Per-Client Requests
             self.ax_requests.set_title('Requests per Client', 
                                       fontweight='bold')
             self.ax_requests.set_xlabel('Client ID')
@@ -249,8 +342,8 @@ class SimulationVisualizer:
                 self.ax_requests.set_xticks(client_ids)
                 self.ax_requests.grid(True, alpha=0.3, axis='y')
             
-            # Plot 4: Active Conversations
-            self.ax_convs.set_title('Active Conversations', 
+            # Plot 5: Active Conversations per Client
+            self.ax_convs.set_title('Active Conversations per Client', 
                                    fontweight='bold')
             self.ax_convs.set_xlabel('Client ID')
             self.ax_convs.set_ylabel('Active Conversations')
@@ -277,7 +370,31 @@ class SimulationVisualizer:
                 self.ax_convs.set_xticks(client_ids)
                 self.ax_convs.grid(True, alpha=0.3, axis='y')
             
-            # Plot 5: Event Timeline
+            # Plot 6: Conversation Snippets
+            self.ax_conversations.set_title(
+                'Live Conversation Snippets',
+                fontweight='bold'
+            )
+            self.ax_conversations.axis('off')
+            if self.conversation_texts:
+                # Show last 8 conversation snippets
+                recent_convs = list(self.conversation_texts)[-8:]
+                conv_text = '\n'.join(recent_convs)
+                self.ax_conversations.text(
+                    0.02, 0.98,
+                    conv_text,
+                    transform=self.ax_conversations.transAxes,
+                    verticalalignment='top',
+                    fontfamily='monospace',
+                    fontsize=9,
+                    bbox=dict(
+                        boxstyle='round',
+                        facecolor='lightyellow',
+                        alpha=0.6
+                    )
+                )
+            
+            # Plot 7: Event Timeline
             self.ax_events.set_title('Recent Events', fontweight='bold')
             self.ax_events.axis('off')
             if self.events:
@@ -361,6 +478,9 @@ class NullVisualizer:
         pass
     
     def add_event(self, *args, **kwargs):
+        pass
+    
+    def add_conversation_snippet(self, *args, **kwargs):
         pass
     
     def start(self):

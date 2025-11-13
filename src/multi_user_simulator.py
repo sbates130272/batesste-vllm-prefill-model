@@ -149,6 +149,57 @@ class LognormalDist(Distribution):
         return max(1, value)
 
 
+def generate_sample_text(
+    conv_id: str,
+    turn: int,
+    is_user: bool,
+    token_count: int
+) -> str:
+    """
+    Generate sample conversational text for visualization.
+    
+    This is a placeholder that generates readable text snippets
+    to display in the conversation viewer.
+    
+    Args:
+        conv_id: Conversation ID
+        turn: Turn number
+        is_user: True for user message, False for assistant
+        token_count: Number of tokens (affects length)
+    
+    Returns:
+        Sample text string
+    """
+    if is_user:
+        templates = [
+            f"Can you explain how {conv_id} works in detail?",
+            f"I need help with {conv_id} turn {turn}",
+            f"What are the best practices for {conv_id}?",
+            f"How do I optimize {conv_id} performance?",
+            f"Tell me more about {conv_id} implementation",
+        ]
+        text = random.choice(templates)
+    else:
+        templates = [
+            f"I'd be happy to explain {conv_id}. Let me break it down...",
+            f"Based on turn {turn}, here's what you need to know...",
+            f"The key aspects of {conv_id} are: efficiency, reliability...",
+            f"For {conv_id}, consider these best practices...",
+            f"Great question! {conv_id} is implemented using...",
+        ]
+        text = random.choice(templates)
+    
+    # Adjust length based on token count
+    if token_count < 20:
+        # Short response
+        text = text.split('.')[0]
+    elif token_count > 50:
+        # Long response
+        text += " " + f"This involves multiple steps and considerations..."
+    
+    return text
+
+
 def generate_synthetic_conversations(
     num_conversations: int,
     num_turns_dist: Distribution,
@@ -339,6 +390,36 @@ async def client_worker(
             visualizer.add_event(
                 f"C{client_id} {conv_id} T{conv.current_turn}: "
                 f"{cached_percent:.0f}% cached"
+            )
+            
+            # Add conversation snippet (user message)
+            user_text = generate_sample_text(
+                conv_id=conv_id,
+                turn=conv.current_turn,
+                is_user=True,
+                token_count=len(conv.turns[conv.current_turn].user_tokens)
+            )
+            visualizer.add_conversation_snippet(
+                client_id=client_id,
+                conv_id=conv_id,
+                turn=conv.current_turn,
+                text=user_text,
+                is_user=True
+            )
+            
+            # Add conversation snippet (assistant response)
+            assistant_text = generate_sample_text(
+                conv_id=conv_id,
+                turn=conv.current_turn,
+                is_user=False,
+                token_count=len(output_tokens)
+            )
+            visualizer.add_conversation_snippet(
+                client_id=client_id,
+                conv_id=conv_id,
+                turn=conv.current_turn,
+                text=assistant_text,
+                is_user=False
             )
         
         if verbose:
