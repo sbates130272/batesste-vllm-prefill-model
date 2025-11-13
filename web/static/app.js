@@ -286,7 +286,9 @@ document.getElementById('configForm').addEventListener('submit',
         ),
         time_limit: parseInt(
             document.getElementById('time_limit').value
-        )
+        ),
+        conversation_template: document.getElementById('conversation_template')
+            .value
     };
     
     // Clear previous data

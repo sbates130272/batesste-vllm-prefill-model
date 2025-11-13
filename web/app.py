@@ -74,6 +74,7 @@ class SimulationConfig(BaseModel):
     max_total_turns: int = 0  # 0 = unlimited
     time_limit: int = 60  # seconds, -1 = infinite
     sampling_strategy: str = "round_robin"
+    conversation_template: str = "standard"  # Template for conversation patterns
     text_mode: bool = False
     dataset_path: Optional[str] = None
     tokenizer: str = "gpt2"
@@ -350,14 +351,18 @@ async def run_simulation_task(
             )
         else:
             collector.add_event('info', 'Generating synthetic conversations')
-            conversations = generate_synthetic_conversations(
-                num_conversations=config.num_conversations,
-                num_turns_dist=num_turns_dist,
-                prefix_tokens_dist=prefix_tokens_dist,
-                user_tokens_dist=user_tokens_dist,
-                assistant_tokens_dist=assistant_tokens_dist,
-                common_prefix_tokens=config.common_prefix_tokens
-            )
+            
+            # Generate initial conversations using template
+            conversations = []
+            for i in range(config.num_conversations):
+                conv = generate_conversation_from_template(
+                    conv_id=f"conv_{i:04d}",
+                    template=template,
+                    common_prefix_tokens=config.common_prefix_tokens,
+                    client_id=0,
+                    conv_counter=i
+                )
+                conversations.append(conv)
         
         collector.add_event('info', 
                           f'Generated {len(conversations)} conversations')
@@ -394,18 +399,33 @@ async def run_simulation_task(
         
         collector.add_event('info', 'Starting simulation...')
         
+        # Parse conversation template
+        from multi_user_simulator import (
+            ConversationTemplate,
+            generate_conversation_from_template
+        )
+        
+        template_map = {
+            'quick_qa': ConversationTemplate.QUICK_QA,
+            'standard': ConversationTemplate.STANDARD_CHAT,
+            'deep_dive': ConversationTemplate.DEEP_DIVE,
+            'debug': ConversationTemplate.DEBUG_SESSION,
+            'mixed': ConversationTemplate.MIXED
+        }
+        template = template_map.get(
+            config.conversation_template,
+            ConversationTemplate.STANDARD_CHAT
+        )
+        
+        collector.add_event(
+            'info',
+            f'Using template: {template.value}'
+        )
+        
         # Prepare conversation generator parameters for continuous mode
+        # Using template-based generation
         generator_params = {
-            'num_turns_dist': UniformDist(4, 8),
-            'prefix_tokens_dist': LognormalDist(config.prefix_tokens_avg),
-            'user_tokens_dist': UniformDist(
-                config.user_tokens_avg // 2,
-                config.user_tokens_avg + config.user_tokens_avg // 2
-            ),
-            'assistant_tokens_dist': UniformDist(
-                config.assistant_tokens_avg - 20,
-                config.assistant_tokens_avg + 20
-            ),
+            'template': template,
             'common_prefix_tokens': config.common_prefix_tokens
         }
         
