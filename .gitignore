@@ -25,3 +25,13 @@ ENV/
 
 # Byte-compiled / optimized / DLL files
 *.pyc
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Misc
+*.log
+.DS_Store
