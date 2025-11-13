@@ -153,23 +153,39 @@ def generate_sample_text(
     conv_id: str,
     turn: int,
     is_user: bool,
-    token_count: int
+    token_count: int,
+    conversation_obj=None
 ) -> str:
     """
     Generate sample conversational text for visualization.
     
-    This is a placeholder that generates readable text snippets
-    to display in the conversation viewer.
+    If conversation_obj is a TextConversation, extracts actual text.
+    Otherwise generates synthetic sample text.
     
     Args:
         conv_id: Conversation ID
         turn: Turn number
         is_user: True for user message, False for assistant
         token_count: Number of tokens (affects length)
+        conversation_obj: Optional Conversation or TextConversation object
     
     Returns:
         Sample text string
     """
+    # Check if this is a TextConversation with real text
+    if conversation_obj and hasattr(conversation_obj, 'messages'):
+        try:
+            # Find the message at this turn
+            # In text mode, messages alternate user/assistant
+            # turn index maps to message index
+            if turn < len(conversation_obj.messages):
+                msg = conversation_obj.messages[turn]
+                if hasattr(msg, 'content'):
+                    return msg.content
+        except:
+            pass
+    
+    # Fallback to synthetic text
     if is_user:
         templates = [
             f"Can you explain how {conv_id} works in detail?",
@@ -351,12 +367,18 @@ async def client_worker(
         )
         
         if verbose:
-            history_tokens = len(prompt_tokens) - \
-                len(conv.turns[conv.current_turn].user_tokens)
+            # Calculate history tokens for both conversation types
+            if hasattr(conv, 'turns'):
+                current_user_tokens = len(conv.turns[conv.current_turn].user_tokens)
+            elif hasattr(conv, 'messages') and conv.current_turn < len(conv.messages):
+                current_user_tokens = len(conv.messages[conv.current_turn].token_ids)
+            else:
+                current_user_tokens = 0
+            
+            history_tokens = len(prompt_tokens) - current_user_tokens
             print(f"[Client {client_id}] {conv_id} Turn "
                   f"{conv.current_turn}: {len(prompt_tokens)} tokens "
-                  f"({history_tokens} history + "
-                  f"{len(conv.turns[conv.current_turn].user_tokens)} new)", 
+                  f"({history_tokens} history + {current_user_tokens} new)", 
                   flush=True)
         
         # Process the request (this is synchronous in our simulation)
@@ -368,7 +390,17 @@ async def client_worker(
         stats.cached_tokens += cache_hit_count
         
         # Simulate assistant response (would be in manager in real system)
-        output_tokens = conv.turns[conv.current_turn].assistant_tokens
+        # Handle both synthetic and text mode conversations
+        if hasattr(conv, 'turns'):
+            # Synthetic mode: Conversation with turns
+            output_tokens = conv.turns[conv.current_turn].assistant_tokens
+        elif hasattr(conv, 'messages') and conv.current_turn + 1 < len(conv.messages):
+            # Text mode: TextConversation with messages
+            # Assistant message is at current_turn + 1 (messages alternate user/assistant)
+            output_tokens = conv.messages[conv.current_turn + 1].token_ids
+        else:
+            output_tokens = []
+        
         stats.total_output_tokens += len(output_tokens)
         
         # Calculate cache hit percentage for this request
@@ -393,11 +425,19 @@ async def client_worker(
             )
             
             # Add conversation snippet (user message)
+            # For text mode, extract actual text; for synthetic mode, generate
+            if hasattr(conv, 'turns'):
+                user_tokens_len = len(conv.turns[conv.current_turn].user_tokens)
+            elif hasattr(conv, 'messages') and conv.current_turn < len(conv.messages):
+                user_tokens_len = len(conv.messages[conv.current_turn].token_ids)
+            else:
+                user_tokens_len = 0
             user_text = generate_sample_text(
                 conv_id=conv_id,
                 turn=conv.current_turn,
                 is_user=True,
-                token_count=len(conv.turns[conv.current_turn].user_tokens)
+                token_count=user_tokens_len,
+                conversation_obj=conv
             )
             visualizer.add_conversation_snippet(
                 client_id=client_id,
@@ -412,7 +452,8 @@ async def client_worker(
                 conv_id=conv_id,
                 turn=conv.current_turn,
                 is_user=False,
-                token_count=len(output_tokens)
+                token_count=len(output_tokens),
+                conversation_obj=conv
             )
             visualizer.add_conversation_snippet(
                 client_id=client_id,
@@ -759,6 +800,36 @@ Examples:
         help='Enable real-time visualization dashboard (requires matplotlib)'
     )
     
+    # Text mode arguments
+    parser.add_argument(
+        '--text-mode',
+        action='store_true',
+        help='Use real text conversations with tokenization instead of '
+             'integer token IDs'
+    )
+    
+    parser.add_argument(
+        '--dataset-path',
+        type=str,
+        default=None,
+        help='Path to ShareGPT JSON dataset file (optional, will generate '
+             'synthetic if not provided)'
+    )
+    
+    parser.add_argument(
+        '--tokenizer',
+        type=str,
+        default='gpt2',
+        help='HuggingFace tokenizer to use in text mode (default: gpt2)'
+    )
+    
+    parser.add_argument(
+        '--common-prefix-text',
+        type=str,
+        default=None,
+        help='Common text prefix for all conversations (system prompt)'
+    )
+    
     args = parser.parse_args()
     
     # Set random seeds
@@ -802,16 +873,70 @@ Examples:
         assistant_tokens_dist = LognormalDist(args.assistant_tokens_avg)
     
     # Generate conversations
-    print("Generating synthetic conversations...")
-    conversations = generate_synthetic_conversations(
-        num_conversations=args.num_conversations,
-        num_turns_dist=num_turns_dist,
-        prefix_tokens_dist=prefix_tokens_dist,
-        user_tokens_dist=user_tokens_dist,
-        assistant_tokens_dist=assistant_tokens_dist,
-        common_prefix_tokens=args.common_prefix_tokens
-    )
-    print(f"Generated {len(conversations)} conversations")
+    if args.text_mode:
+        print("\n" + "="*70)
+        print("TEXT MODE ENABLED")
+        print("="*70)
+        print(f"Tokenizer: {args.tokenizer}")
+        if args.dataset_path:
+            print(f"Dataset: {args.dataset_path}")
+        else:
+            print("Dataset: Synthetic text conversations (no file provided)")
+        print("="*70 + "\n")
+        
+        # Import text mode module
+        try:
+            import text_mode
+            
+            # Create text dataset
+            dataset = text_mode.TextModeDataset(
+                dataset_path=args.dataset_path,
+                tokenizer_name=args.tokenizer
+            )
+            
+            # Load conversations
+            dataset.load_sharegpt_dataset(max_conversations=args.num_conversations)
+            
+            # Get text conversations
+            conversations = dataset.get_text_conversations(
+                num_conversations=args.num_conversations,
+                common_prefix=args.common_prefix_text
+            )
+            
+            # Print stats
+            stats = dataset.get_stats()
+            print(f"\n📊 Dataset Statistics:")
+            print(f"  Conversations: {stats.get('num_conversations', 0)}")
+            print(f"  Total messages: {stats.get('total_messages', 0)}")
+            print(f"  Avg turns/conv: {stats.get('avg_turns_per_conv', 0):.1f}")
+            print(f"  Turn range: {stats.get('min_turns', 0)}-{stats.get('max_turns', 0)}")
+            print(f"  Total characters: {stats.get('total_chars', 0):,}\n")
+            
+        except ImportError as e:
+            print(f"ERROR: Could not import text_mode module: {e}")
+            print("Falling back to synthetic integer token mode...")
+            args.text_mode = False
+            
+            # Fall back to regular mode
+            conversations = generate_synthetic_conversations(
+                num_conversations=args.num_conversations,
+                num_turns_dist=num_turns_dist,
+                prefix_tokens_dist=prefix_tokens_dist,
+                user_tokens_dist=user_tokens_dist,
+                assistant_tokens_dist=assistant_tokens_dist,
+                common_prefix_tokens=args.common_prefix_tokens
+            )
+    else:
+        print("Generating synthetic conversations...")
+        conversations = generate_synthetic_conversations(
+            num_conversations=args.num_conversations,
+            num_turns_dist=num_turns_dist,
+            prefix_tokens_dist=prefix_tokens_dist,
+            user_tokens_dist=user_tokens_dist,
+            assistant_tokens_dist=assistant_tokens_dist,
+            common_prefix_tokens=args.common_prefix_tokens
+        )
+        print(f"Generated {len(conversations)} conversations")
     
     # Create visualizer if requested
     visualizer = None
