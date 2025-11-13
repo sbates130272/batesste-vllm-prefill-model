@@ -36,12 +36,9 @@ python3 src/multi_user_simulator.py
 python3 src/multi_user_simulator.py --num-clients 10 \
   --num-conversations 100 --request-rate 2.0
 
-# See all options
+# See all options and detailed usage examples
 python3 src/multi_user_simulator.py --help
 ```
-
-📖 **See the [Multi-User Guide](docs/MULTI_USER_GUIDE.md)** for
-detailed documentation, examples, and use cases.
 
 ## Features
 
