@@ -30,11 +30,21 @@ function initCharts() {
             animation: false,
             plugins: {
                 legend: {
-                    display: false
+                    display: true,
+                    position: 'top',
+                    align: 'start',
+                    labels: {
+                        font: {
+                            size: 13,
+                            weight: 'bold'
+                        }
+                    }
                 }
             },
             scales: {
                 x: {
+                    type: 'linear',
+                    min: 0,
                     title: {
                         display: true,
                         text: 'Time (s)'
@@ -170,32 +180,33 @@ function initCharts() {
 
 // Update charts with new data
 function updateCharts(metrics) {
-    const maxPoints = 100;
-    
     if (metrics.timestamps && metrics.timestamps.length > 0) {
         const timestamps = metrics.timestamps.map(t => t.toFixed(1));
         
-        // Update hit rate chart
+        // Update hit rate chart - show full timeline
         if (metrics.cache_hit_rate) {
-            charts.hitRate.data.labels = timestamps.slice(-maxPoints);
-            charts.hitRate.data.datasets[0].data = 
-                metrics.cache_hit_rate.slice(-maxPoints);
+            const currentValue = metrics.cache_hit_rate[metrics.cache_hit_rate.length - 1];
+            charts.hitRate.data.labels = timestamps;
+            charts.hitRate.data.datasets[0].data = metrics.cache_hit_rate;
+            charts.hitRate.data.datasets[0].label = `Hit Rate % (${currentValue.toFixed(1)}%)`;
             charts.hitRate.update('none');
         }
         
-        // Update occupancy chart
+        // Update occupancy chart - show full timeline
         if (metrics.cache_occupancy) {
-            charts.occupancy.data.labels = timestamps.slice(-maxPoints);
-            charts.occupancy.data.datasets[0].data = 
-                metrics.cache_occupancy.slice(-maxPoints);
+            const currentValue = metrics.cache_occupancy[metrics.cache_occupancy.length - 1];
+            charts.occupancy.data.labels = timestamps;
+            charts.occupancy.data.datasets[0].data = metrics.cache_occupancy;
+            charts.occupancy.data.datasets[0].label = `Occupancy % (${currentValue.toFixed(1)}%)`;
             charts.occupancy.update('none');
         }
         
-        // Update active conversations chart
+        // Update active conversations chart - show full timeline
         if (metrics.active_conversations) {
-            charts.activeConvs.data.labels = timestamps.slice(-maxPoints);
-            charts.activeConvs.data.datasets[0].data = 
-                metrics.active_conversations.slice(-maxPoints);
+            const currentValue = metrics.active_conversations[metrics.active_conversations.length - 1];
+            charts.activeConvs.data.labels = timestamps;
+            charts.activeConvs.data.datasets[0].data = metrics.active_conversations;
+            charts.activeConvs.data.datasets[0].label = `Active Conversations (${currentValue})`;
             charts.activeConvs.update('none');
         }
     }
@@ -229,6 +240,86 @@ function addEvent(event) {
     eventsLog.scrollTop = eventsLog.scrollHeight;
 }
 
+// Update cache log display
+function updateCacheLog(entries) {
+    const cacheLog = document.getElementById('cacheLog');
+    if (!cacheLog) return;
+    
+    // Keep only last 10 entries visible
+    const lastEntries = entries.slice(-10);
+    
+    cacheLog.innerHTML = lastEntries.map(entry => {
+        const time = entry.timestamp.toFixed(1);
+        const occupancy = entry.occupancy.toFixed(1);
+        const hitRateCumulative = entry.hit_rate_cumulative ? entry.hit_rate_cumulative.toFixed(1) : '0.0';
+        const hitRateInstant = entry.hit_rate_instant ? entry.hit_rate_instant.toFixed(1) : '0.0';
+        
+        let hitInfo = '';
+        if (entry.recent_hits && entry.recent_hits.length > 0) {
+            const hitsHtml = entry.recent_hits.slice().reverse().slice(0, 3).map(hit => {
+                // Display both token IDs and decoded text
+                let tokensDisplay = '';
+                if (hit.tokens_text && hit.tokens_text.length > 0) {
+                    // Show decoded text with token IDs
+                    tokensDisplay = hit.tokens_text.map((text, idx) => {
+                        const tokenId = hit.tokens_preview[idx];
+                        // Escape special chars and show text
+                        const escapedText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        return `<span title="Token ID: ${tokenId}">"${escapedText}"</span>`;
+                    }).join(' ');
+                } else {
+                    // Fallback to just token IDs
+                    tokensDisplay = hit.tokens_preview.map((tokenId, idx) => 
+                        `[${idx}]=${tokenId}`
+                    ).join(', ');
+                }
+                return `
+                    <div style="margin-bottom: 4px; padding: 3px; background: rgba(255,255,255,0.5); border-radius: 2px;">
+                        <div><strong>Hash:</strong> <code>${hit.block_hash}</code></div>
+                        <div><strong>Conv:</strong> ${hit.conv_id}</div>
+                        <div class="tokens-preview"><strong>Tokens (${hit.token_count}):</strong> ${tokensDisplay}${hit.token_count > 10 ? '...' : ''}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            hitInfo = `
+                <div class="cache-hit-info">
+                    <div class="hit-label">✓ Recent Cache Hits (${entry.recent_hits.length}):</div>
+                    ${hitsHtml}
+                </div>
+            `;
+        }
+        
+        return `
+            <div class="cache-log-entry">
+                <div class="timestamp">⏱ ${time}s</div>
+                <div class="cache-stats">
+                    <div class="stat-row">
+                        <span class="stat-label">Blocks Used:</span>
+                        <span class="stat-value">${entry.blocks_used} / ${entry.blocks_total}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Occupancy:</span>
+                        <span class="stat-value">${occupancy}%</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Hit Rate (Now):</span>
+                        <span class="stat-value">${hitRateInstant}%</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Hit Rate (Avg):</span>
+                        <span class="stat-value">${hitRateCumulative}%</span>
+                    </div>
+                </div>
+                ${hitInfo}
+            </div>
+        `;
+    }).reverse().join('');
+    
+    // Auto-scroll to top (newest entry)
+    cacheLog.scrollTop = 0;
+}
+
 // Display conversation snippet
 function displayConversation(conv) {
     const conversationsBox = document.getElementById('conversationsBox');
@@ -250,11 +341,12 @@ function displayConversation(conv) {
         const recentTurns = conv.turns.slice(-2);
         recentTurns.forEach(turn => {
             const isUser = turn.role === 'user';
+            const userLabel = isUser ? `👤 User (Client ${conv.client_id})` : '🤖 Assistant';
             turnsHtml += `
                 <div class="conversation-turn">
                     <div class="turn-label ${isUser ? 'turn-user' : 
                                                         'turn-assistant'}">
-                        ${isUser ? '👤 User' : '🤖 Assistant'}:
+                        ${userLabel}:
                     </div>
                     <div class="turn-content">${escapeHtml(turn.content)}
                     </div>
@@ -387,6 +479,20 @@ function updateStatus(status, summaryData = null) {
             `;
         }
         
+        // Show conversation duration statistics
+        if (summaryData.conv_duration_stats && summaryData.conv_duration_stats.count > 0) {
+            const stats = summaryData.conv_duration_stats;
+            html += `
+                <div style="margin-top: 5px;">
+                    <strong>Conversation Duration (sec):</strong>
+                    Min: ${stats.min.toFixed(1)}, 
+                    Max: ${stats.max.toFixed(1)}, 
+                    Avg: ${stats.avg.toFixed(1)}, 
+                    Std: ${stats.std.toFixed(2)}
+                </div>
+            `;
+        }
+        
         html += `
             <div><strong>Total Requests:</strong> 
                  ${totalRequests.toLocaleString()}</div>
@@ -458,9 +564,7 @@ document.getElementById('configForm').addEventListener('submit',
     // Get form values
     const config = {
         num_clients: parseInt(document.getElementById('num_clients').value),
-        num_conversations: parseInt(
-            document.getElementById('num_conversations').value
-        ),
+        // num_conversations removed - controlled by turns/time instead
         block_size: parseInt(document.getElementById('block_size').value),
         total_blocks: parseInt(document.getElementById('total_blocks').value),
         request_rate: parseFloat(
@@ -481,6 +585,7 @@ document.getElementById('configForm').addEventListener('submit',
     
     // Clear previous data
     document.getElementById('eventsLog').innerHTML = '';
+    document.getElementById('cacheLog').innerHTML = '';
     document.getElementById('conversationsBox').innerHTML = 
         '<p class="no-conversations">No active conversations yet</p>';
     conversationCount = 0;
@@ -492,6 +597,9 @@ document.getElementById('configForm').addEventListener('submit',
         chart.data.datasets.forEach(dataset => dataset.data = []);
         chart.update();
     });
+    
+    // Clear analytics charts
+    clearAnalyticsCharts();
     
     // Update UI
     document.getElementById('startBtn').disabled = true;
@@ -519,8 +627,10 @@ document.getElementById('configForm').addEventListener('submit',
     } catch (error) {
         console.error('Error starting simulation:', error);
         updateStatus('error');
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('startBtn').classList.remove('loading');
+        const startBtn = document.getElementById('startBtn');
+        startBtn.disabled = false;
+        startBtn.classList.remove('loading');
+        startBtn.textContent = '▶️ Start Simulation';
     }
 });
 
@@ -536,6 +646,11 @@ function connectWebSocket(simId) {
         simulationStartTime = Date.now();
         updateStatus('running');
         startRuntimeCounter();
+        
+        // Update button to show running state
+        const startBtn = document.getElementById('startBtn');
+        startBtn.textContent = '⏸️ Running Sim';
+        startBtn.classList.remove('loading');
     };
     
     ws.onmessage = (event) => {
@@ -562,6 +677,15 @@ function connectWebSocket(simId) {
                 displayConversation(message.data);
                 break;
             
+            case 'analytics':
+                console.log('Received analytics data:', message.data);
+                updateAnalyticsCharts(message.data);
+                break;
+            
+            case 'cache_log':
+                updateCacheLog(message.data);
+                break;
+            
             case 'complete':
                 console.log('Simulation complete', message.data);
                 updateStatus('completed', message.data);
@@ -585,8 +709,11 @@ function connectWebSocket(simId) {
 
 // Handle simulation completion
 function onSimulationComplete() {
-    document.getElementById('startBtn').disabled = false;
-    document.getElementById('startBtn').classList.remove('loading');
+    const startBtn = document.getElementById('startBtn');
+    startBtn.disabled = false;
+    startBtn.classList.remove('loading');
+    startBtn.textContent = '▶️ Start Simulation';
+    
     document.getElementById('stopBtn').disabled = true;
     
     stopRuntimeCounter();
@@ -639,6 +766,8 @@ function updateBlockSizeMemory() {
 // Initialize on page load
 window.addEventListener('load', () => {
     initCharts();
+    initAnalyticsCharts();
+    setupAnalyticsExportButtons();
     
     // Setup memory calculation listeners
     document.getElementById('model_preset').addEventListener('change', updateBlockSizeMemory);
