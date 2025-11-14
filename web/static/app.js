@@ -3,6 +3,22 @@
 let currentSimId = null;
 let ws = null;
 let charts = {};
+let conversationCount = 0;
+let simulationStartTime = null;
+let runtimeInterval = null;
+
+// Model configurations for memory calculations
+const MODEL_CONFIGS = {
+    'llama2-7b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'llama2-13b': { hidden_dim: 5120, num_layers: 40, dtype_bytes: 2 },
+    'llama2-70b': { hidden_dim: 8192, num_layers: 80, dtype_bytes: 2 },
+    'llama3-8b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'llama3-70b': { hidden_dim: 8192, num_layers: 80, dtype_bytes: 2 },
+    'mistral-7b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'mixtral-8x7b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'gpt-j-6b': { hidden_dim: 4096, num_layers: 28, dtype_bytes: 2 },
+    'custom': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 }
+};
 
 // Initialize charts
 function initCharts() {
@@ -213,14 +229,112 @@ function addEvent(event) {
     eventsLog.scrollTop = eventsLog.scrollHeight;
 }
 
+// Display conversation snippet
+function displayConversation(conv) {
+    const conversationsBox = document.getElementById('conversationsBox');
+    
+    // Remove "no conversations" message if present
+    const noConvMsg = conversationsBox.querySelector('.no-conversations');
+    if (noConvMsg) {
+        noConvMsg.remove();
+    }
+    
+    // Create conversation item
+    const convItem = document.createElement('div');
+    convItem.className = 'conversation-item';
+    convItem.id = `conv-${conv.conv_id}`;
+    
+    let turnsHtml = '';
+    if (conv.turns && conv.turns.length > 0) {
+        // Show last 2 turns for brevity
+        const recentTurns = conv.turns.slice(-2);
+        recentTurns.forEach(turn => {
+            const isUser = turn.role === 'user';
+            turnsHtml += `
+                <div class="conversation-turn">
+                    <div class="turn-label ${isUser ? 'turn-user' : 
+                                                        'turn-assistant'}">
+                        ${isUser ? '👤 User' : '🤖 Assistant'}:
+                    </div>
+                    <div class="turn-content">${escapeHtml(turn.content)}
+                    </div>
+                </div>
+            `;
+        });
+    }
+    
+    convItem.innerHTML = `
+        <div class="conversation-header">
+            <div class="conversation-id">${conv.conv_id}</div>
+            <div class="conversation-client">Client ${conv.client_id}</div>
+        </div>
+        ${turnsHtml}
+        <div class="conversation-stats">
+            <div class="stat-item">
+                <span class="stat-label">Turns:</span>
+                <span>${conv.num_turns || 0}</span>
+            </div>
+            ${conv.cache_hits !== undefined ? `
+                <div class="stat-item cache-hit">
+                    <span class="stat-label">Cache Hits:</span>
+                    <span>${conv.cache_hits}</span>
+                </div>
+            ` : ''}
+            ${conv.total_tokens !== undefined ? `
+                <div class="stat-item">
+                    <span class="stat-label">Tokens:</span>
+                    <span>${conv.total_tokens}</span>
+                </div>
+            ` : ''}
+        </div>
+    `;
+    
+    // Check if conversation already exists and update it
+    const existingConv = document.getElementById(`conv-${conv.conv_id}`);
+    if (existingConv) {
+        existingConv.replaceWith(convItem);
+    } else {
+        // Add to top of list
+        conversationsBox.insertBefore(convItem, conversationsBox.firstChild);
+        
+        // Increment counter for new conversations
+        conversationCount++;
+        document.getElementById('convCount').textContent = 
+            `(${conversationCount})`;
+        
+        // Limit to 10 conversations displayed
+        const items = conversationsBox.querySelectorAll('.conversation-item');
+        if (items.length > 10) {
+            items[items.length - 1].remove();
+        }
+    }
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // Update status display
-function updateStatus(status, clientStats = null) {
+function updateStatus(status, summaryData = null) {
     const statusContent = document.getElementById('statusContent');
     
     let html = `<p class="status-${status}">${getStatusMessage(status)}</p>`;
     
-    if (status === 'completed' && clientStats) {
+    // Add runtime for running simulations
+    if (status === 'running' && simulationStartTime) {
+        const elapsed = Math.floor((Date.now() - simulationStartTime) / 1000);
+        html += `<div class="runtime-display" id="runtimeDisplay">
+                   <strong>Runtime:</strong> ${formatTime(elapsed)}
+                 </div>`;
+    }
+    
+    if (status === 'completed' && summaryData) {
         html += '<div class="status-details">';
+        
+        const clientStats = summaryData.client_stats || summaryData;
         
         // Calculate totals
         let totalRequests = 0;
@@ -236,6 +350,43 @@ function updateStatus(status, clientStats = null) {
         const overallHitRate = totalInputTokens > 0 ? 
             (totalCachedTokens / totalInputTokens * 100).toFixed(1) : 0;
         
+        // Show final runtime
+        if (simulationStartTime) {
+            const totalTime = Math.floor((Date.now() - simulationStartTime) / 1000);
+            html += `
+                <div><strong>Total Runtime:</strong> ${formatTime(totalTime)}</div>
+            `;
+        }
+        
+        // Show total conversations and turns
+        if (summaryData.total_conversations) {
+            html += `
+                <div><strong>Total Conversations:</strong> 
+                     ${summaryData.total_conversations.toLocaleString()}</div>
+            `;
+        }
+        
+        if (summaryData.total_turns) {
+            html += `
+                <div><strong>Total Turns:</strong> 
+                     ${summaryData.total_turns.toLocaleString()}</div>
+            `;
+        }
+        
+        // Show active conversation statistics
+        if (summaryData.active_conv_stats) {
+            const stats = summaryData.active_conv_stats;
+            html += `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                    <strong>Active Conversations:</strong>
+                    Min: ${stats.min}, 
+                    Max: ${stats.max}, 
+                    Avg: ${stats.avg.toFixed(1)}, 
+                    Std: ${stats.std.toFixed(2)}
+                </div>
+            `;
+        }
+        
         html += `
             <div><strong>Total Requests:</strong> 
                  ${totalRequests.toLocaleString()}</div>
@@ -249,6 +400,43 @@ function updateStatus(status, clientStats = null) {
     }
     
     statusContent.innerHTML = html;
+}
+
+// Format time as HH:MM:SS or MM:SS
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+}
+
+// Update runtime display every second
+function startRuntimeCounter() {
+    // Clear any existing interval
+    if (runtimeInterval) {
+        clearInterval(runtimeInterval);
+    }
+    
+    runtimeInterval = setInterval(() => {
+        const runtimeDisplay = document.getElementById('runtimeDisplay');
+        if (runtimeDisplay && simulationStartTime) {
+            const elapsed = Math.floor((Date.now() - simulationStartTime) / 1000);
+            runtimeDisplay.innerHTML = `<strong>Runtime:</strong> ${formatTime(elapsed)}`;
+        }
+    }, 1000);
+}
+
+// Stop runtime counter
+function stopRuntimeCounter() {
+    if (runtimeInterval) {
+        clearInterval(runtimeInterval);
+        runtimeInterval = null;
+    }
 }
 
 function getStatusMessage(status) {
@@ -293,6 +481,12 @@ document.getElementById('configForm').addEventListener('submit',
     
     // Clear previous data
     document.getElementById('eventsLog').innerHTML = '';
+    document.getElementById('conversationsBox').innerHTML = 
+        '<p class="no-conversations">No active conversations yet</p>';
+    conversationCount = 0;
+    document.getElementById('convCount').textContent = '(0)';
+    simulationStartTime = null;
+    stopRuntimeCounter();
     Object.values(charts).forEach(chart => {
         chart.data.labels = [];
         chart.data.datasets.forEach(dataset => dataset.data = []);
@@ -339,7 +533,9 @@ function connectWebSocket(simId) {
     
     ws.onopen = () => {
         console.log('WebSocket connected');
+        simulationStartTime = Date.now();
         updateStatus('running');
+        startRuntimeCounter();
     };
     
     ws.onmessage = (event) => {
@@ -362,10 +558,18 @@ function connectWebSocket(simId) {
                 }
                 break;
             
+            case 'conversation':
+                displayConversation(message.data);
+                break;
+            
             case 'complete':
                 console.log('Simulation complete', message.data);
+                updateStatus('completed', message.data);
                 onSimulationComplete();
                 break;
+            
+            default:
+                console.log('Unknown message type:', message.type);
         }
     };
     
@@ -385,6 +589,8 @@ function onSimulationComplete() {
     document.getElementById('startBtn').classList.remove('loading');
     document.getElementById('stopBtn').disabled = true;
     
+    stopRuntimeCounter();
+    
     if (ws) {
         ws.close();
         ws = null;
@@ -400,9 +606,46 @@ document.getElementById('stopBtn').addEventListener('click', () => {
     updateStatus('idle');
 });
 
+// Calculate and display block size in memory
+function updateBlockSizeMemory() {
+    const modelPreset = document.getElementById('model_preset').value;
+    const blockSize = parseInt(document.getElementById('block_size').value) || 16;
+    const totalBlocks = parseInt(document.getElementById('total_blocks').value) || 500;
+    
+    const config = MODEL_CONFIGS[modelPreset];
+    if (!config) return;
+    
+    // KV cache memory per token = 2 (K + V) × hidden_dim × num_layers × dtype_bytes
+    const bytesPerToken = 2 * config.hidden_dim * config.num_layers * config.dtype_bytes;
+    const bytesPerBlock = bytesPerToken * blockSize;
+    const mibPerBlock = bytesPerBlock / (1024 * 1024);
+    
+    // Update block size display
+    const memoryDisplay = document.getElementById('block_size_memory');
+    memoryDisplay.textContent = `≈ ${mibPerBlock.toFixed(1)} MiB per block`;
+    
+    // Update total cache size display
+    const totalCacheMiB = mibPerBlock * totalBlocks;
+    const totalCacheGiB = totalCacheMiB / 1024;
+    
+    const totalMemoryDisplay = document.getElementById('total_cache_memory');
+    if (totalCacheGiB >= 1) {
+        totalMemoryDisplay.textContent = `Total cache: ${totalCacheGiB.toFixed(2)} GiB`;
+    } else {
+        totalMemoryDisplay.textContent = `Total cache: ${totalCacheMiB.toFixed(0)} MiB`;
+    }
+}
+
 // Initialize on page load
 window.addEventListener('load', () => {
     initCharts();
+    
+    // Setup memory calculation listeners
+    document.getElementById('model_preset').addEventListener('change', updateBlockSizeMemory);
+    document.getElementById('block_size').addEventListener('input', updateBlockSizeMemory);
+    document.getElementById('total_blocks').addEventListener('input', updateBlockSizeMemory);
+    updateBlockSizeMemory();
+    
     console.log('vLLM Simulator Web UI initialized');
 });
 

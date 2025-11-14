@@ -497,13 +497,25 @@ async def client_worker(
     active_convs: Dict[str, Conversation] = {}
     conv_queue: deque = deque(maxlen=max_active_conversations)
     
-    # Add initial conversations up to max_active_conversations
-    for conv in conversations[:max_active_conversations]:
+    # Start with random initial load (0 to max_active_conversations)
+    # Add variability: use client_id as seed for different behavior per client
+    rng = np.random.RandomState(seed=client_id + 42)
+    initial_count = rng.randint(0, max(1, max_active_conversations // 2) + 1)
+    
+    for conv in conversations[:initial_count]:
         active_convs[conv.conv_id] = conv
         conv_queue.append(conv.conv_id)
     
     # Track index for round-robin through all conversations
-    next_conv_idx = max_active_conversations
+    next_conv_idx = initial_count
+    
+    # Client-specific variability (some clients more/less active)
+    client_activity_factor = 0.5 + rng.random()  # 0.5 to 1.5
+    
+    if verbose:
+        print(f"[Client {client_id}] Starting with {initial_count} active "
+              f"conversations (activity factor: {client_activity_factor:.2f})", 
+              flush=True)
     
     # Update visualizer with initial state
     if visualizer:
@@ -511,10 +523,35 @@ async def client_worker(
             client_id, len(active_convs)
         )
         visualizer.add_event(
-            f"Client {client_id} started with {len(conversations)} convs"
+            f"Client {client_id} started with {initial_count} active convs"
         )
     
-    while len(active_convs) > 0:
+    # Continue until we've gone through all conversations or hit stop condition
+    while next_conv_idx < len(conversations) or len(active_convs) > 0:
+        # Periodically try to start new conversations (dynamic ramp-up)
+        if len(active_convs) < max_active_conversations and \
+           next_conv_idx < len(conversations):
+            # Probability of starting a new conversation this cycle
+            # Higher when below capacity, scaled by activity factor
+            start_prob = 0.3 * (1 - len(active_convs) / max_active_conversations) * \
+                        client_activity_factor
+            
+            if rng.random() < start_prob:
+                new_conv = conversations[next_conv_idx]
+                next_conv_idx += 1
+                active_convs[new_conv.conv_id] = new_conv
+                conv_queue.appendleft(new_conv.conv_id)
+                
+                if verbose:
+                    print(f"[Client {client_id}] Spontaneously started "
+                          f"{new_conv.conv_id} ({len(active_convs)} active)",
+                          flush=True)
+                
+                if visualizer:
+                    visualizer.update_active_conversations(
+                        client_id, len(active_convs)
+                    )
+        
         # Pick a conversation to process
         if sampling_strategy == ConversationSampling.ROUND_ROBIN:
             conv_id = conv_queue.pop() if conv_queue else None
@@ -523,7 +560,12 @@ async def client_worker(
                 if active_convs else None
         
         if conv_id is None:
-            break
+            # No active conversations, wait a bit before trying again
+            if next_conv_idx < len(conversations):
+                await asyncio.sleep(0.1)
+                continue
+            else:
+                break
         
         conv = active_convs[conv_id]
         
@@ -679,28 +721,47 @@ async def client_worker(
                     client_id, len(active_convs)
                 )
             
-            # Add a new conversation - either from original list or generate
-            new_conv = None
-            if next_conv_idx < len(conversations):
-                # Use conversation from original list
-                new_conv = conversations[next_conv_idx]
-                next_conv_idx += 1
-            elif conversation_generator:
-                # Generate new conversation on-the-fly (continuous mode)
-                new_conv = conversation_generator()
-                if verbose:
-                    print(f"[Client {client_id}] Generated new "
-                          f"conversation {new_conv.conv_id}", flush=True)
+            # Probabilistically add a new conversation (not always immediate replacement)
+            # Probability increases if we're below max capacity
+            capacity_ratio = len(active_convs) / max(1, max_active_conversations)
+            # Probability ranges from 0.9 (at 0% capacity) to 0.3 (at 100% capacity)
+            add_prob = (0.9 - 0.6 * capacity_ratio) * client_activity_factor
             
-            if new_conv:
-                active_convs[new_conv.conv_id] = new_conv
-                conv_queue.appendleft(new_conv.conv_id)
+            should_add = rng.random() < add_prob and \
+                        len(active_convs) < max_active_conversations
+            
+            if should_add:
+                # Add a new conversation - either from original list or generate
+                new_conv = None
+                if next_conv_idx < len(conversations):
+                    # Use conversation from original list
+                    new_conv = conversations[next_conv_idx]
+                    next_conv_idx += 1
+                elif conversation_generator:
+                    # Generate new conversation on-the-fly (continuous mode)
+                    new_conv = conversation_generator()
+                    if verbose:
+                        print(f"[Client {client_id}] Generated new "
+                              f"conversation {new_conv.conv_id}", flush=True)
                 
-                # Update visualizer
-                if visualizer:
-                    visualizer.update_active_conversations(
-                        client_id, len(active_convs)
-                    )
+                if new_conv:
+                    active_convs[new_conv.conv_id] = new_conv
+                    conv_queue.appendleft(new_conv.conv_id)
+                    
+                    if verbose:
+                        print(f"[Client {client_id}] Started new conversation "
+                              f"{new_conv.conv_id} ({len(active_convs)} active)",
+                              flush=True)
+                    
+                    # Update visualizer
+                    if visualizer:
+                        visualizer.update_active_conversations(
+                            client_id, len(active_convs)
+                        )
+            elif verbose:
+                print(f"[Client {client_id}] Not starting new conversation "
+                      f"({len(active_convs)} active, prob={add_prob:.2f})",
+                      flush=True)
         
         # Sleep between requests (Poisson process)
         if request_rate > 0:
