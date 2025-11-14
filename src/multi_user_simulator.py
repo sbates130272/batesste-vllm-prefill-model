@@ -268,10 +268,12 @@ def generate_sample_text(
     # Adjust length based on token count
     if token_count < 20:
         # Short response
-        text = text.split('.')[0]
+        text = text.split('.')[0] + "."
     elif token_count > 50:
-        # Long response
-        text += " " + f"This involves multiple steps and considerations..."
+        # Long response - ensure proper punctuation
+        if not text.endswith(('.', '!', '?')):
+            text += "."
+        text += " This involves multiple steps and considerations..."
     
     return text
 
@@ -527,31 +529,7 @@ async def client_worker(
         )
     
     # Continue until we've gone through all conversations or hit stop condition
-    while next_conv_idx < len(conversations) or len(active_convs) > 0:
-        # Periodically try to start new conversations (dynamic ramp-up)
-        if len(active_convs) < max_active_conversations and \
-           next_conv_idx < len(conversations):
-            # Probability of starting a new conversation this cycle
-            # Higher when below capacity, scaled by activity factor
-            start_prob = 0.3 * (1 - len(active_convs) / max_active_conversations) * \
-                        client_activity_factor
-            
-            if rng.random() < start_prob:
-                new_conv = conversations[next_conv_idx]
-                next_conv_idx += 1
-                active_convs[new_conv.conv_id] = new_conv
-                conv_queue.appendleft(new_conv.conv_id)
-                
-                if verbose:
-                    print(f"[Client {client_id}] Spontaneously started "
-                          f"{new_conv.conv_id} ({len(active_convs)} active)",
-                          flush=True)
-                
-                if visualizer:
-                    visualizer.update_active_conversations(
-                        client_id, len(active_convs)
-                    )
-        
+    while len(active_convs) > 0:
         # Pick a conversation to process
         if sampling_strategy == ConversationSampling.ROUND_ROBIN:
             conv_id = conv_queue.pop() if conv_queue else None
@@ -594,6 +572,8 @@ async def client_worker(
                   flush=True)
         
         # Process the request (this is synchronous in our simulation)
+        # Set current conversation ID for cache hit tracking
+        manager.current_conv_id = conv_id
         cache_hit_count = manager.process_request(req)
         
         # Update stats
@@ -656,7 +636,9 @@ async def client_worker(
                 conv_id=conv_id,
                 turn=conv.current_turn,
                 text=user_text,
-                is_user=True
+                is_user=True,
+                cache_hit_count=cache_hit_count,
+                token_count=len(prompt_tokens)
             )
             
             # Add conversation snippet (assistant response)
@@ -717,6 +699,13 @@ async def client_worker(
             
             # Update visualizer
             if visualizer:
+                # Record full conversation token sequence for similarity analysis
+                full_tokens = conv.get_messages_up_to_turn(conv.current_turn)
+                visualizer.record_conversation_tokens(conv_id, full_tokens)
+                
+                # Record conversation completion time
+                visualizer.record_conversation_completion(conv_id)
+                
                 visualizer.update_active_conversations(
                     client_id, len(active_convs)
                 )
@@ -806,7 +795,8 @@ async def run_multi_user_simulation(
     # Create shared KV cache manager
     manager = PrefixCacheManager(
         total_blocks=total_blocks,
-        block_size=block_size
+        block_size=block_size,
+        visualizer=visualizer
     )
     
     # Start visualization update task if visualizer is present

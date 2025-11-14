@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import uuid
 from typing import List, Dict, Optional, Tuple
 
@@ -84,9 +85,11 @@ class PrefixCacheManager:
     Simulates vLLM's PagedAttention and Prefix Caching mechanisms.
     """
 
-    def __init__(self, total_blocks: int, block_size: int):
+    def __init__(self, total_blocks: int, block_size: int, 
+                 visualizer=None):
         self.total_blocks = total_blocks
         self.block_size = block_size
+        self.visualizer = visualizer
 
         # Physical Block Pool (simulated GPU memory)
         self.block_pool: Dict[int, KVBlock] = {
@@ -105,6 +108,9 @@ class PrefixCacheManager:
 
         # List of active requests
         self.active_requests: List[SimulatedRequest] = []
+        
+        # Track current conversation ID for cache hit reporting
+        self.current_conv_id: str = ""
 
     def get_status(self):
         """Prints the current state of the system."""
@@ -139,6 +145,15 @@ class PrefixCacheManager:
         # The key is the sequence of all tokens from the start of the
         # prompt up to and including the current block's tokens.
         return tuple(prefix_tokens + block_tokens)
+    
+    def _generate_hash_string(self, cache_key: Tuple[int, ...]) -> str:
+        """
+        Generate an MD5 hash string from the cache key tuple.
+        Similar to vLLM's approach for cache key hashing.
+        """
+        # Convert tuple of token IDs to bytes and hash
+        key_bytes = str(cache_key).encode('utf-8')
+        return hashlib.md5(key_bytes).hexdigest()
 
     def allocate_block(self, block: KVBlock) -> int:
         """Increments ref count and allocates a physical block ID."""
@@ -211,6 +226,18 @@ class PrefixCacheManager:
                     hit_block.ref_count += 1
                     block_table.append(cached_block_id)
                     cache_hit_count += len(block_tokens)
+                    
+                    # Record cache hit for visualization
+                    if self.visualizer and hasattr(self.visualizer, 
+                                                   'record_cache_hit'):
+                        # Generate MD5 hash of the cache key
+                        block_hash = self._generate_hash_string(cache_key)
+                        self.visualizer.record_cache_hit(
+                            block_hash, 
+                            list(block_tokens), 
+                            self.current_conv_id
+                        )
+                    
                     if DEBUG:
                         print(
                         f"  [Cache Hit] Reusing Block ID "

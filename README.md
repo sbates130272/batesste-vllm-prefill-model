@@ -4,7 +4,71 @@ A Python simulation of vLLM's PagedAttention and Prefix Caching mechanisms
 for understanding how Key-Value (KV) cache blocks are allocated, reused, and
 managed during LLM inference.
 
-## Quick Start
+## Installation & Setup
+
+### 1. Set up Virtual Environment (Recommended)
+
+```bash
+# Clone or navigate to the project directory
+cd batesste-vllm-prefill-model
+
+# Run the setup script
+bash setup-venv.sh
+
+# The script will:
+# - Create a Python virtual environment
+# - Install all dependencies (FastAPI, transformers, etc.)
+# - Set up the GPT-2 tokenizer
+```
+
+### 2. Start the Web UI
+
+```bash
+# Start the web server
+bash start-webui.sh
+
+# The web UI will be available at:
+# http://localhost:8000
+```
+
+To stop the server:
+```bash
+bash stop-webui.sh
+```
+
+### Manual Virtual Environment Setup
+
+If you prefer to set up manually:
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate it
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the web UI
+uvicorn web.app:app --host 0.0.0.0 --port 8000
+```
+
+## Web Interface Features
+
+The web UI provides:
+- **Interactive Configuration**: Set block size, cache size, clients, etc.
+- **Real-Time Monitoring**: Live cache occupancy, hit rates, active 
+  conversations
+- **Advanced Analytics**: Heatmaps, per-conversation effectiveness, prefix 
+  overlap analysis
+- **Cache State Log**: See actual cached blocks with MD5 hashes and decoded 
+  token text
+- **Conversation Templates**: Quick QA, Standard Chat, Deep Dive, Debug 
+  Session patterns
+- **Dataset Upload**: Load ShareGPT-format conversation datasets
+
+## Quick Start (Command Line)
 
 ```bash
 # Run with default settings

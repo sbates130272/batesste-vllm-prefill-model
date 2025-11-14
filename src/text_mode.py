@@ -51,7 +51,8 @@ class TextModeDataset:
     def __init__(
         self,
         dataset_path: Optional[str] = None,
-        tokenizer_name: str = "gpt2"
+        tokenizer_name: str = "gpt2",
+        tokenizer = None
     ):
         """
         Initialize text mode dataset.
@@ -59,27 +60,31 @@ class TextModeDataset:
         Args:
             dataset_path: Path to ShareGPT JSON file (optional)
             tokenizer_name: HuggingFace tokenizer to use
+            tokenizer: Pre-loaded tokenizer object (optional, takes precedence)
         """
         self.dataset_path = dataset_path
         self.tokenizer_name = tokenizer_name
-        self.tokenizer = None
+        self.tokenizer = tokenizer  # Use provided tokenizer if available
         self.conversations: List[Dict[str, Any]] = []
         
-        # Try to load tokenizer
-        try:
-            from transformers import AutoTokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer_name,
-                trust_remote_code=True
-            )
-            print(f"✓ Loaded tokenizer: {tokenizer_name}")
-        except ImportError:
-            print("WARNING: transformers not installed. "
-                  "Install with: pip install transformers")
-            print("Falling back to mock tokenization...")
-        except Exception as e:
-            print(f"WARNING: Could not load tokenizer: {e}")
-            print("Falling back to mock tokenization...")
+        # Try to load tokenizer if not provided
+        if not self.tokenizer:
+            try:
+                from transformers import AutoTokenizer
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    tokenizer_name,
+                    trust_remote_code=True
+                )
+                print(f"✓ Loaded tokenizer: {tokenizer_name}")
+            except ImportError:
+                print("WARNING: transformers not installed. "
+                      "Install with: pip install transformers")
+                print("Falling back to mock tokenization...")
+            except Exception as e:
+                print(f"WARNING: Could not load tokenizer: {e}")
+                print("Falling back to mock tokenization...")
+        else:
+            print(f"✓ Using provided tokenizer")
     
     def load_sharegpt_dataset(
         self, 
@@ -297,51 +302,85 @@ class TextModeDataset:
         """
         Generate synthetic text conversations as fallback.
         
-        Creates realistic-looking multi-turn dialogues.
+        Creates realistic-looking multi-turn dialogues with variety.
         """
         print(f"Generating {num_conversations} synthetic text conversations...")
         
         topics = [
-            "machine learning", "data science", "web development",
-            "cloud computing", "artificial intelligence", "databases",
-            "cybersecurity", "mobile apps", "DevOps", "algorithms"
+            "machine learning", "neural networks", "data pipelines", "web APIs",
+            "cloud infrastructure", "AI models", "SQL optimization", "authentication",
+            "microservices", "mobile UI design", "CI/CD pipelines", "sorting algorithms",
+            "distributed systems", "container orchestration", "cryptography", "caching strategies"
+        ]
+        
+        first_turn_templates = [
+            "Can you explain {topic} and how it works in production?",
+            "I'm trying to understand {topic} - where should I start?",
+            "What are the best practices for implementing {topic}?",
+            "How does {topic} compare to alternative approaches?",
+            "I'm debugging an issue with {topic}, can you help?",
+            "What are the performance implications of {topic}?",
+            "Could you walk me through {topic} with an example?",
+            "When should I use {topic} vs other solutions?"
+        ]
+        
+        follow_up_templates = [
+            "That makes sense! What about the edge cases?",
+            "Interesting. How does this scale in practice?",
+            "Can you give me a concrete code example?",
+            "What are the common pitfalls to avoid?",
+            "How would this work in a distributed environment?",
+            "What about security considerations?",
+            "Could you elaborate on the performance aspects?",
+            "Are there any alternatives I should consider?"
+        ]
+        
+        assistant_intros = [
+            "Great question! Let me explain how this works.",
+            "Sure, I can help with that.",
+            "Here's a comprehensive overview:",
+            "Let me break this down for you.",
+            "That's an important topic. Here's what you need to know:",
+            "Good question - this is a common challenge.",
+            "I'll explain the key concepts you need to understand."
+        ]
+        
+        assistant_bodies = [
+            "The core principle involves careful design and implementation. You'll want to consider both performance and maintainability.",
+            "There are several approaches, each with tradeoffs. The most common pattern is to balance simplicity with flexibility.",
+            "In production systems, you need to account for failure modes and recovery strategies. Testing is crucial here.",
+            "The key is understanding the underlying architecture. Once you grasp that, implementation becomes straightforward.",
+            "Best practices suggest starting simple and iterating based on metrics. Don't over-engineer early on.",
+            "Modern implementations focus on scalability and resilience. You'll want to leverage existing libraries where possible.",
+            "The implementation details depend on your specific use case, but the general principles remain consistent."
         ]
         
         for i in range(num_conversations):
             topic = random.choice(topics)
-            num_turns = random.randint(2, 8)
+            num_turns = random.randint(2, 6)
             
             messages = []
             for turn in range(num_turns):
                 # User message
                 if turn == 0:
-                    user_content = (
-                        f"Can you explain {topic} and its applications? "
-                        f"I'm particularly interested in understanding "
-                        f"the core concepts and best practices."
-                    )
+                    template = random.choice(first_turn_templates)
+                    user_content = template.format(topic=topic)
                 else:
-                    user_content = (
-                        f"That's interesting! Can you elaborate more on "
-                        f"the {topic} aspect you mentioned? "
-                        f"What are some common challenges?"
-                    )
+                    user_content = random.choice(follow_up_templates)
                 
                 messages.append({
                     "role": "user",
                     "content": user_content
                 })
                 
-                # Assistant message
-                assistant_content = (
-                    f"Great question about {topic}! Let me break this down. "
-                    f"First, it's important to understand the fundamentals. "
-                    f"The key concepts involve several interconnected ideas "
-                    f"that work together to solve complex problems. "
-                    f"In practice, you'll want to focus on scalability, "
-                    f"efficiency, and maintainability. "
-                    f"Would you like me to go deeper into any specific area?"
-                )
+                # Assistant message - more varied
+                intro = random.choice(assistant_intros)
+                body = random.choice(assistant_bodies)
+                assistant_content = f"{intro} {body}"
+                
+                # Add occasional follow-up questions
+                if random.random() < 0.3:
+                    assistant_content += " Would you like me to elaborate on any specific part?"
                 
                 messages.append({
                     "role": "assistant",
