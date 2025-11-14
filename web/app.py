@@ -152,12 +152,20 @@ class WebSimulationCollector:
         
         # Conversation similarity tracking
         self.conversation_tokens: Dict[str, List[int]] = {}  # conv_id -> token sequence
+        self.jaccard_timeline: List[Dict] = []  # Average Jaccard over time
         
         # Initialize heatmap with starting point at t=0
         self.heatmap_data.append({
             'time': 0.0,
             'hit_rate': 0.0,
             'active_convs': 0
+        })
+        
+        # Initialize Jaccard timeline
+        self.jaccard_timeline.append({
+            'time': 0.0,
+            'avg_jaccard': 0.0,
+            'num_pairs': 0
         })
     
     def add_event(self, event_type: str, message: str, data: dict = None):
@@ -310,7 +318,8 @@ class WebSimulationCollector:
             'heatmap': self.heatmap_data[-50:],  # Last 50 points for display
             'top_conversations': top_convs,
             'prefix_overlap': self.prefix_stats.copy(),
-            'conversation_similarities': similarities
+            'conversation_similarities': similarities,
+            'jaccard_timeline': self.jaccard_timeline.copy()
         }
     
     def add_conversation_snippet(
@@ -355,6 +364,41 @@ class WebSimulationCollector:
         if conv_id not in self.conversation_tokens:
             self.conversation_tokens[conv_id] = []
         self.conversation_tokens[conv_id] = tokens
+    
+    def update_jaccard_timeline(self):
+        """Calculate and record average Jaccard similarity at current time."""
+        if len(self.conversation_tokens) < 2:
+            return  # Need at least 2 conversations to compare
+        
+        conv_ids = list(self.conversation_tokens.keys())
+        jaccard_values = []
+        
+        # Calculate Jaccard for all pairs
+        for i, conv_id_a in enumerate(conv_ids):
+            for j, conv_id_b in enumerate(conv_ids):
+                if i >= j:
+                    continue  # Only upper triangle
+                
+                tokens_a = self.conversation_tokens[conv_id_a]
+                tokens_b = self.conversation_tokens[conv_id_b]
+                
+                # Calculate Jaccard similarity
+                set_a = set(tokens_a)
+                set_b = set(tokens_b)
+                intersection = len(set_a & set_b)
+                union = len(set_a | set_b)
+                jaccard = intersection / union if union > 0 else 0
+                
+                jaccard_values.append(jaccard)
+        
+        # Record average Jaccard
+        if jaccard_values:
+            avg_jaccard = sum(jaccard_values) / len(jaccard_values)
+            self.jaccard_timeline.append({
+                'time': time.time() - self.start_time,
+                'avg_jaccard': avg_jaccard,
+                'num_pairs': len(jaccard_values)
+            })
     
     def calculate_conversation_similarities(self) -> Dict:
         """
@@ -439,6 +483,29 @@ class WebSimulationCollector:
                 'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0
             }
         
+        # Calculate Jaccard similarity statistics from timeline
+        if self.jaccard_timeline and len(self.jaccard_timeline) > 1:
+            # Skip t=0 initial point
+            jaccard_values = [point['avg_jaccard'] 
+                              for point in self.jaccard_timeline[1:]]
+            if jaccard_values:
+                self.jaccard_stats = {
+                    'min': min(jaccard_values),
+                    'max': max(jaccard_values),
+                    'avg': statistics.mean(jaccard_values),
+                    'std': statistics.stdev(jaccard_values)
+                           if len(jaccard_values) > 1 else 0,
+                    'count': len(jaccard_values)
+                }
+            else:
+                self.jaccard_stats = {
+                    'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0
+                }
+        else:
+            self.jaccard_stats = {
+                'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0
+            }
+        
         for client_id, stats in client_stats.items():
             self.client_stats[client_id] = {
                 'requests_sent': stats.requests_sent,
@@ -461,6 +528,7 @@ class WebSimulationCollector:
             'total_turns': getattr(self, 'total_turns', 0),
             'active_conv_stats': getattr(self, 'active_conv_stats', {}),
             'conv_duration_stats': getattr(self, 'conv_duration_stats', {}),
+            'jaccard_stats': getattr(self, 'jaccard_stats', {}),
             'client_stats': self.client_stats,
             'metrics': self.metrics
         }
@@ -489,6 +557,8 @@ class WebVisualizer:
         self.start_time = time.time()
         # Track conversation data for web display
         self.conversation_data: Dict[str, Dict] = {}
+        # Track per-client stats in real-time
+        self.client_stats_realtime: Dict[int, Dict] = {}
     
     def update_cache_state(self, used_blocks: int):
         """Update cache state."""
@@ -504,6 +574,32 @@ class WebVisualizer:
         """Update request metrics."""
         self.total_hits += cache_hit_count
         self.total_tokens += total_tokens
+        
+        # Track per-client stats in real-time
+        if client_id not in self.client_stats_realtime:
+            self.client_stats_realtime[client_id] = {
+                'requests': 0,
+                'tokens': 0,
+                'cached_tokens': 0,
+                'cache_hit_rate': 0.0
+            }
+        
+        self.client_stats_realtime[client_id]['requests'] += 1
+        self.client_stats_realtime[client_id]['tokens'] += total_tokens
+        self.client_stats_realtime[client_id]['cached_tokens'] += cache_hit_count
+        
+        # Calculate hit rate for this client
+        if self.client_stats_realtime[client_id]['tokens'] > 0:
+            self.client_stats_realtime[client_id]['cache_hit_rate'] = (
+                self.client_stats_realtime[client_id]['cached_tokens'] / 
+                self.client_stats_realtime[client_id]['tokens'] * 100
+            )
+        
+        # Update collector's client_stats for real-time display
+        self.collector.client_stats[client_id] = {
+            'requests_sent': self.client_stats_realtime[client_id]['requests'],
+            'cache_hit_rate': self.client_stats_realtime[client_id]['cache_hit_rate']
+        }
         
         # Track turns
         self.total_turns_processed += 1
@@ -549,6 +645,8 @@ class WebVisualizer:
     def record_conversation_tokens(self, conv_id: str, tokens: List[int]):
         """Record full token sequence for a conversation."""
         self.collector.record_conversation_tokens(conv_id, tokens)
+        # Update Jaccard timeline after recording tokens
+        self.collector.update_jaccard_timeline()
     
     def add_conversation_snippet(
         self,

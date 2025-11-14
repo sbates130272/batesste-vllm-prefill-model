@@ -134,6 +134,44 @@ function initCharts() {
         }
     );
 
+    // Jaccard Similarity Timeline Chart
+    charts.jaccardTimeline = new Chart(
+        document.getElementById('jaccardTimelineChart'),
+        {
+            ...chartConfig,
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Avg Jaccard Similarity',
+                    data: [],
+                    borderColor: '#9c27b0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                ...chartConfig.options,
+                scales: {
+                    ...chartConfig.options.scales,
+                    y: {
+                        beginAtZero: true,
+                        max: 1,
+                        title: {
+                            display: true,
+                            text: 'Jaccard Index (0-1)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return (value * 100).toFixed(0) + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+
     // Client Stats Chart (Bar chart)
     charts.clientStats = new Chart(
         document.getElementById('clientStatsChart'),
@@ -212,16 +250,41 @@ function updateCharts(metrics) {
     }
 }
 
+// Update Jaccard timeline chart
+function updateJaccardTimeline(timelineData) {
+    if (timelineData && timelineData.length > 0) {
+        const times = timelineData.map(point => point.time.toFixed(1));
+        const jaccardValues = timelineData.map(point => point.avg_jaccard);
+        
+        const currentValue = jaccardValues[jaccardValues.length - 1];
+        charts.jaccardTimeline.data.labels = times;
+        charts.jaccardTimeline.data.datasets[0].data = jaccardValues;
+        charts.jaccardTimeline.data.datasets[0].label = 
+            `Avg Jaccard Similarity (${(currentValue * 100).toFixed(1)}%)`;
+        charts.jaccardTimeline.update('none');
+    }
+}
+
 // Update client stats chart
 function updateClientStats(clientStats) {
     const clientIds = Object.keys(clientStats).sort((a, b) => a - b);
+    const placeholder = document.getElementById('clientStatsPlaceholder');
+    const canvas = document.getElementById('clientStatsChart');
     
     if (clientIds.length > 0) {
+        // Hide placeholder, show chart
+        if (placeholder) placeholder.style.display = 'none';
+        if (canvas) canvas.style.display = 'block';
+        
         charts.clientStats.data.labels = 
             clientIds.map(id => `Client ${id}`);
         charts.clientStats.data.datasets[0].data = 
             clientIds.map(id => clientStats[id].cache_hit_rate.toFixed(1));
         charts.clientStats.update('none');
+    } else {
+        // Show placeholder, hide chart
+        if (placeholder) placeholder.style.display = 'flex';
+        if (canvas) canvas.style.display = 'none';
     }
 }
 
@@ -493,6 +556,20 @@ function updateStatus(status, summaryData = null) {
             `;
         }
         
+        // Show Jaccard similarity statistics
+        if (summaryData.jaccard_stats && summaryData.jaccard_stats.count > 0) {
+            const stats = summaryData.jaccard_stats;
+            html += `
+                <div style="margin-top: 5px;">
+                    <strong>Jaccard Similarity:</strong>
+                    Min: ${(stats.min * 100).toFixed(1)}%, 
+                    Max: ${(stats.max * 100).toFixed(1)}%, 
+                    Avg: ${(stats.avg * 100).toFixed(1)}%, 
+                    Std: ${(stats.std * 100).toFixed(2)}%
+                </div>
+            `;
+        }
+        
         html += `
             <div><strong>Total Requests:</strong> 
                  ${totalRequests.toLocaleString()}</div>
@@ -601,6 +678,15 @@ document.getElementById('configForm').addEventListener('submit',
     // Clear analytics charts
     clearAnalyticsCharts();
     
+    // Clear client stats
+    const placeholder = document.getElementById('clientStatsPlaceholder');
+    const canvas = document.getElementById('clientStatsChart');
+    if (placeholder) placeholder.style.display = 'flex';
+    if (canvas) canvas.style.display = 'none';
+    charts.clientStats.data.labels = [];
+    charts.clientStats.data.datasets[0].data = [];
+    charts.clientStats.update();
+    
     // Update UI
     document.getElementById('startBtn').disabled = true;
     document.getElementById('startBtn').classList.add('loading');
@@ -680,6 +766,10 @@ function connectWebSocket(simId) {
             case 'analytics':
                 console.log('Received analytics data:', message.data);
                 updateAnalyticsCharts(message.data);
+                // Update Jaccard timeline if available
+                if (message.data.jaccard_timeline) {
+                    updateJaccardTimeline(message.data.jaccard_timeline);
+                }
                 break;
             
             case 'cache_log':
