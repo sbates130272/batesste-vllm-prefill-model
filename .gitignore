@@ -40,6 +40,9 @@ data/*.json
 scripts/commit-*.sh
 test-spelling.sh
 
+# Web UI virtual environment
+web/venv/
+
 # Misc
 *.log
 .DS_Store

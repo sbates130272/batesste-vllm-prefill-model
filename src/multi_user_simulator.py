@@ -60,6 +60,15 @@ class ConversationSampling(str, Enum):
     RANDOM = "random"
 
 
+class ConversationTemplate(str, Enum):
+    """Predefined conversation patterns for realistic simulation."""
+    QUICK_QA = "quick_qa"          # 1-2 turns, fast responses
+    STANDARD_CHAT = "standard"     # 4-8 turns, normal pace
+    DEEP_DIVE = "deep_dive"        # 10-20 turns, longer messages
+    DEBUG_SESSION = "debug"        # 15-30 turns, technical
+    MIXED = "mixed"                # Random mix of above
+
+
 @dataclass
 class ConversationTurn:
     """Represents a single turn in a conversation."""
@@ -73,6 +82,8 @@ class Conversation:
     conv_id: str
     turns: List[ConversationTurn]
     current_turn: int = 0
+    template: ConversationTemplate = ConversationTemplate.STANDARD_CHAT
+    inter_turn_delay: float = 5.0  # Seconds between turns (think time)
     
     def has_more_turns(self) -> bool:
         """Check if conversation has more turns to process."""
@@ -148,6 +159,54 @@ class LognormalDist(Distribution):
         if self.max_val:
             value = min(value, self.max_val)
         return max(1, value)
+
+
+@dataclass
+class TemplateConfig:
+    """Configuration for a conversation template."""
+    name: str
+    turns_range: tuple  # (min, max) turns
+    user_tokens_range: tuple  # (min, max) tokens
+    assistant_tokens_range: tuple  # (min, max) tokens
+    inter_turn_delay_range: tuple  # (min, max) seconds
+    description: str
+
+
+# Predefined template configurations
+TEMPLATE_CONFIGS = {
+    ConversationTemplate.QUICK_QA: TemplateConfig(
+        name="Quick Q&A",
+        turns_range=(1, 2),
+        user_tokens_range=(20, 50),
+        assistant_tokens_range=(30, 80),
+        inter_turn_delay_range=(1.0, 3.0),
+        description="Fast, short questions with quick responses"
+    ),
+    ConversationTemplate.STANDARD_CHAT: TemplateConfig(
+        name="Standard Chat",
+        turns_range=(4, 8),
+        user_tokens_range=(40, 80),
+        assistant_tokens_range=(80, 150),
+        inter_turn_delay_range=(3.0, 8.0),
+        description="Normal conversation with typical think time"
+    ),
+    ConversationTemplate.DEEP_DIVE: TemplateConfig(
+        name="Deep Dive",
+        turns_range=(10, 20),
+        user_tokens_range=(80, 200),
+        assistant_tokens_range=(150, 400),
+        inter_turn_delay_range=(5.0, 15.0),
+        description="In-depth discussion with longer messages"
+    ),
+    ConversationTemplate.DEBUG_SESSION: TemplateConfig(
+        name="Debug Session",
+        turns_range=(15, 30),
+        user_tokens_range=(50, 150),
+        assistant_tokens_range=(100, 300),
+        inter_turn_delay_range=(2.0, 10.0),
+        description="Technical troubleshooting with code/logs"
+    ),
+}
 
 
 def generate_sample_text(
@@ -295,6 +354,115 @@ def generate_synthetic_conversations(
     return conversations
 
 
+def generate_new_conversation(
+    client_id: int,
+    conv_counter: int,
+    num_turns_dist,
+    prefix_tokens_dist,
+    user_tokens_dist,
+    assistant_tokens_dist,
+    common_prefix_tokens: int
+) -> Conversation:
+    """Generate a new conversation on-the-fly."""
+    conv_id = f"conv_c{client_id}_{conv_counter:04d}"
+    
+    # Generate common and unique prefix
+    common_prefix = list(range(1, common_prefix_tokens + 1))
+    prefix_len = prefix_tokens_dist.sample()
+    # Use client_id and conv_counter to make unique token IDs
+    base_token = 10000 + (client_id * 100000) + (conv_counter * 1000)
+    unique_prefix = list(range(base_token, base_token + prefix_len))
+    token_counter = base_token + prefix_len
+    
+    # Determine number of turns
+    num_turns = max(1, num_turns_dist.sample() // 2)
+    
+    turns = []
+    for turn_idx in range(num_turns):
+        # User message tokens
+        user_len = user_tokens_dist.sample()
+        user_tokens = list(range(token_counter, token_counter + user_len))
+        token_counter += user_len
+        
+        # Assistant response tokens
+        assistant_len = assistant_tokens_dist.sample()
+        assistant_tokens = list(range(
+            token_counter, token_counter + assistant_len
+        ))
+        token_counter += assistant_len
+        
+        # For the first turn, include prefixes
+        if turn_idx == 0:
+            user_tokens = common_prefix + unique_prefix + user_tokens
+        
+        turns.append(ConversationTurn(
+            user_tokens=user_tokens,
+            assistant_tokens=assistant_tokens
+        ))
+    
+    return Conversation(conv_id=conv_id, turns=turns)
+
+
+def generate_conversation_from_template(
+    conv_id: str,
+    template: ConversationTemplate,
+    common_prefix_tokens: int,
+    client_id: int = 0,
+    conv_counter: int = 0
+) -> Conversation:
+    """Generate a conversation based on a template."""
+    if template == ConversationTemplate.MIXED:
+        # Randomly pick a non-mixed template
+        template = random.choice([
+            ConversationTemplate.QUICK_QA,
+            ConversationTemplate.STANDARD_CHAT,
+            ConversationTemplate.DEEP_DIVE,
+            ConversationTemplate.DEBUG_SESSION
+        ])
+    
+    config = TEMPLATE_CONFIGS[template]
+    
+    # Determine conversation parameters from template
+    num_turns = random.randint(*config.turns_range)
+    inter_turn_delay = random.uniform(*config.inter_turn_delay_range)
+    
+    # Generate common and unique prefix
+    common_prefix = list(range(1, common_prefix_tokens + 1))
+    prefix_len = random.randint(100, 300)
+    base_token = 10000 + (client_id * 100000) + (conv_counter * 1000)
+    unique_prefix = list(range(base_token, base_token + prefix_len))
+    token_counter = base_token + prefix_len
+    
+    turns = []
+    for turn_idx in range(num_turns):
+        # Use template ranges for token counts
+        user_len = random.randint(*config.user_tokens_range)
+        user_tokens = list(range(token_counter, token_counter + user_len))
+        token_counter += user_len
+        
+        assistant_len = random.randint(*config.assistant_tokens_range)
+        assistant_tokens = list(range(
+            token_counter, token_counter + assistant_len
+        ))
+        token_counter += assistant_len
+        
+        # For the first turn, include prefixes
+        if turn_idx == 0:
+            user_tokens = common_prefix + unique_prefix + user_tokens
+        
+        turns.append(ConversationTurn(
+            user_tokens=user_tokens,
+            assistant_tokens=assistant_tokens
+        ))
+    
+    return Conversation(
+        conv_id=conv_id,
+        turns=turns,
+        template=template,
+        inter_turn_delay=inter_turn_delay
+    )
+
+
 async def client_worker(
     client_id: int,
     conversations: List[Conversation],
@@ -304,7 +472,8 @@ async def client_worker(
     max_active_conversations: int,
     stats: ClientStats,
     visualizer: Optional[object] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    conversation_generator: Optional[callable] = None
 ) -> None:
     """
     Simulate a single client processing multiple conversations.
@@ -469,6 +638,16 @@ async def client_worker(
                   f"{conv.current_turn} completed: "
                   f"{cached_percent:.1f}% cached", flush=True)
         
+        # Check if we should stop early (e.g., max turns limit reached)
+        if visualizer and hasattr(visualizer, 'should_stop') and \
+           visualizer.should_stop:
+            if verbose:
+                print(f"[Client {client_id}] Stopping due to turn limit",
+                      flush=True)
+            # Free current request before stopping
+            manager.free_request(req)
+            break
+        
         # Free the request
         manager.free_request(req)
         
@@ -476,6 +655,15 @@ async def client_worker(
         conv.current_turn += 1
         
         if conv.has_more_turns():
+            # Add inter-turn delay (think time between turns in same
+            # conversation)
+            if hasattr(conv, 'inter_turn_delay') and conv.inter_turn_delay > 0:
+                if verbose:
+                    print(f"[Client {client_id}] {conv_id} pausing for "
+                          f"{conv.inter_turn_delay:.1f}s (think time)",
+                          flush=True)
+                await asyncio.sleep(conv.inter_turn_delay)
+            
             # Conversation continues, add back to queue
             if sampling_strategy == ConversationSampling.ROUND_ROBIN:
                 conv_queue.appendleft(conv_id)
@@ -491,12 +679,22 @@ async def client_worker(
                     client_id, len(active_convs)
                 )
             
-            # Add a new conversation if available
+            # Add a new conversation - either from original list or generate
+            new_conv = None
             if next_conv_idx < len(conversations):
+                # Use conversation from original list
                 new_conv = conversations[next_conv_idx]
+                next_conv_idx += 1
+            elif conversation_generator:
+                # Generate new conversation on-the-fly (continuous mode)
+                new_conv = conversation_generator()
+                if verbose:
+                    print(f"[Client {client_id}] Generated new "
+                          f"conversation {new_conv.conv_id}", flush=True)
+            
+            if new_conv:
                 active_convs[new_conv.conv_id] = new_conv
                 conv_queue.appendleft(new_conv.conv_id)
-                next_conv_idx += 1
                 
                 # Update visualizer
                 if visualizer:
@@ -532,7 +730,8 @@ async def run_multi_user_simulation(
     request_rate: float,
     max_active_conversations: int,
     visualizer: Optional[object] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    conversation_generator_params: Optional[Dict] = None
 ) -> Dict[int, ClientStats]:
     """
     Run the multi-user simulation with multiple clients.
@@ -586,6 +785,35 @@ async def run_multi_user_simulation(
         stats = ClientStats(client_id=client_id)
         client_stats[client_id] = stats
         
+        # Create conversation generator if parameters provided
+        generator = None
+        if conversation_generator_params:
+            conv_counter = [0]  # Mutable to track count
+            
+            def make_generator(cid):
+                def gen():
+                    conv_counter[0] += 1
+                    conv_id = f"conv_c{cid}_{conv_counter[0]:04d}"
+                    
+                    # Check if using templates
+                    if 'template' in conversation_generator_params:
+                        return generate_conversation_from_template(
+                            conv_id=conv_id,
+                            client_id=cid,
+                            conv_counter=conv_counter[0],
+                            **conversation_generator_params
+                        )
+                    else:
+                        # Legacy generator with distributions
+                        return generate_new_conversation(
+                            client_id=cid,
+                            conv_counter=conv_counter[0],
+                            **conversation_generator_params
+                        )
+                return gen
+            
+            generator = make_generator(client_id)
+        
         task = asyncio.create_task(client_worker(
             client_id=client_id,
             conversations=client_convs,
@@ -595,7 +823,8 @@ async def run_multi_user_simulation(
             max_active_conversations=max_active_conversations,
             stats=stats,
             visualizer=visualizer,
-            verbose=verbose
+            verbose=verbose,
+            conversation_generator=generator
         ))
         tasks.append(task)
     

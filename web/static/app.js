@@ -283,7 +283,12 @@ document.getElementById('configForm').addEventListener('submit',
         ),
         max_total_turns: parseInt(
             document.getElementById('max_total_turns').value
-        )
+        ),
+        time_limit: parseInt(
+            document.getElementById('time_limit').value
+        ),
+        conversation_template: document.getElementById('conversation_template')
+            .value
     };
     
     // Clear previous data

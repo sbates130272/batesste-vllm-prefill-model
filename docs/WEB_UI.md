@@ -58,18 +58,46 @@ Configure your simulation with these parameters:
 | Parameter | Description | Default | Range |
 |-----------|-------------|---------|-------|
 | **Number of Clients** | Concurrent users | 3 | 1-20 |
-| **Conversations** | Total conversations | 20 | 1-1000 |
+| **Conversations** | Initial conversations | 20 | 1-1000 |
 | **Block Size** | Tokens per block | 16 | 1-128 |
 | **Total Blocks** | Cache capacity | 500 | 10-100000 |
-| **Request Rate** | Requests per second | 0 | 0-100 |
+| **Request Rate** | Requests per second | 1.0 | 0-100 |
 | **Max Active Convs** | Concurrent per client | 3 | 1-50 |
+| **Max Total Turns** | Turn limit (0=unlimited) | 0 | 0-10000 |
+| **Time Limit** | Duration in seconds (-1=infinite) | 60 | -1-3600 |
+
+### Simulation Duration Controls
+
+The simulator supports **continuous generation mode** where new 
+conversations are automatically created as old ones complete. This allows 
+for long-running tests and realistic workload simulation.
+
+#### Max Total Turns
+- **0** (default): No turn limit - simulation continues until time limit
+- **>0**: Stop after processing this many turns across all conversations
+- Useful for benchmarking with consistent workload size
+
+#### Time Limit
+- **-1**: Infinite - simulation runs continuously, generating new 
+  conversations indefinitely (requires manual stop)
+- **0 or more**: Stop after this many seconds
+- Default: **60 seconds** for quick tests
+
+**Examples:**
+- **Quick test**: `Max Total Turns = 100`, `Time Limit = 60` (stops at 
+  first limit reached)
+- **Long run**: `Max Total Turns = 0`, `Time Limit = 300` (runs for 5 
+  minutes)
+- **Infinite**: `Max Total Turns = 0`, `Time Limit = -1` (runs until 
+  manually stopped)
 
 ### Starting a Simulation
 
 1. **Adjust parameters** in the configuration panel
-2. **Click "▶️ Start Simulation"**
-3. **Watch real-time updates** in charts and event log
-4. **Wait for completion** or click "⏹️ Stop"
+2. **Set duration limits** (turn limit and/or time limit)
+3. **Click "▶️ Start Simulation"**
+4. **Watch real-time updates** in charts and event log
+5. **Wait for completion** or click "⏹️ Stop"
 
 ### Real-Time Charts
 
