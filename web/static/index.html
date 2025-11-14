@@ -25,13 +25,13 @@
                         <div class="form-group">
                             <label for="num_clients">Number of Clients</label>
                             <input type="number" id="num_clients" 
-                                   value="3" min="1" max="20">
+                                   value="3" min="1" max="10000">
                         </div>
                         
                         <div class="form-group">
                             <label for="num_conversations">Conversations</label>
                             <input type="number" id="num_conversations" 
-                                   value="20" min="1" max="1000">
+                                   value="100" min="1" max="10000">
                         </div>
                         
                         <div class="form-group">
@@ -135,6 +135,18 @@
                 <div class="chart-container">
                     <h3>Per-Client Statistics</h3>
                     <canvas id="clientStatsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Conversations Panel -->
+            <div class="panel conversations-panel">
+                <h2>💬 Live Conversations 
+                    <span id="convCount" class="conv-count">(0)</span>
+                </h2>
+                <div id="conversationsBox" class="conversations-box">
+                    <p class="no-conversations">
+                        No active conversations yet
+                    </p>
                 </div>
             </div>
 

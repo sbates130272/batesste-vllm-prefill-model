@@ -37,7 +37,9 @@ from multi_user_simulator import (
     UniformDist,
     ConstantDist,
     LognormalDist,
-    ClientStats
+    ClientStats,
+    ConversationTemplate,
+    generate_conversation_from_template
 )
 
 # Try to import text_mode
@@ -61,7 +63,7 @@ active_simulations: Dict[str, dict] = {}
 class SimulationConfig(BaseModel):
     """Configuration for a simulation run."""
     num_clients: int = 3
-    num_conversations: int = 20
+    num_conversations: int = 100
     num_turns: Optional[int] = None
     block_size: int = 16
     total_blocks: int = 500
@@ -95,6 +97,7 @@ class WebSimulationCollector:
             'timestamps': []
         }
         self.client_stats: Dict[int, dict] = {}
+        self.conversations: Dict[str, Dict] = {}
         self.start_time = time.time()
         self.status = "running"
     
@@ -118,11 +121,36 @@ class WebSimulationCollector:
         """Update simulation metrics."""
         elapsed = time.time() - self.start_time
         self.metrics['timestamps'].append(elapsed)
-        self.metrics['cache_occupancy'].append(cache_used / cache_total * 100)
+        
+        # Calculate cache occupancy, ensuring valid values
+        if cache_total > 0:
+            occupancy = max(0, min(100, (cache_used / cache_total) * 100))
+        else:
+            occupancy = 0
+        self.metrics['cache_occupancy'].append(occupancy)
         
         hit_rate = (hit_count / total_tokens * 100) if total_tokens > 0 else 0
         self.metrics['cache_hit_rate'].append(hit_rate)
         self.metrics['active_conversations'].append(active_convs)
+    
+    def add_conversation_snippet(
+        self,
+        conv_id: str,
+        client_id: int,
+        turns: List[Dict],
+        cache_hits: int = 0,
+        total_tokens: int = 0
+    ):
+        """Add or update a conversation snippet."""
+        self.conversations[conv_id] = {
+            'conv_id': conv_id,
+            'client_id': client_id,
+            'turns': turns,
+            'num_turns': len(turns),
+            'cache_hits': cache_hits,
+            'total_tokens': total_tokens,
+            'last_updated': time.time()
+        }
     
     def finalize(self, client_stats: Dict[int, ClientStats]):
         """Finalize simulation with client statistics."""
@@ -157,11 +185,12 @@ class WebVisualizer:
         self,
         collector: WebSimulationCollector,
         max_total_turns: int = 0,
-        time_limit: int = 60
+        time_limit: int = 60,
+        total_blocks: int = 500
     ):
         self.collector = collector
         self.cache_used = 0
-        self.cache_total = 1
+        self.cache_total = max(total_blocks, 1)  # Ensure at least 1
         self.total_hits = 0
         self.total_tokens = 0
         self.active_convs_per_client: Dict[int, int] = {}
@@ -170,10 +199,13 @@ class WebVisualizer:
         self.total_turns_processed = 0
         self.should_stop = False
         self.start_time = time.time()
+        # Track conversation data for web display
+        self.conversation_data: Dict[str, Dict] = {}
     
     def update_cache_state(self, used_blocks: int):
         """Update cache state."""
-        self.cache_used = used_blocks
+        # Ensure cache_used is never negative
+        self.cache_used = max(0, used_blocks)
     
     def update_request(
         self,
@@ -226,9 +258,56 @@ class WebVisualizer:
         """Add event."""
         self.collector.add_event('info', message)
     
-    def add_conversation_snippet(self, *args, **kwargs):
-        """Add conversation snippet (not needed for web)."""
-        pass
+    def add_conversation_snippet(
+        self,
+        client_id: int,
+        conv_id: str,
+        turn: int,
+        text: str,
+        is_user: bool = True
+    ):
+        """Add conversation snippet for web display."""
+        # Initialize conversation if not exists
+        if conv_id not in self.conversation_data:
+            self.conversation_data[conv_id] = {
+                'client_id': client_id,
+                'conv_id': conv_id,
+                'turns': [],
+                'cache_hits': 0,
+                'total_tokens': 0
+            }
+        
+        conv = self.conversation_data[conv_id]
+        
+        # Ensure we have enough turn slots
+        while len(conv['turns']) <= turn:
+            conv['turns'].append({'user': '', 'assistant': ''})
+        
+        # Add the text to the appropriate role
+        role = 'user' if is_user else 'assistant'
+        conv['turns'][turn][role] = text
+        
+        # Update the collector with formatted turn data
+        formatted_turns = []
+        for t in conv['turns']:
+            if t['user']:
+                formatted_turns.append({
+                    'role': 'user',
+                    'content': t['user']
+                })
+            if t['assistant']:
+                formatted_turns.append({
+                    'role': 'assistant',
+                    'content': t['assistant']
+                })
+        
+        self.collector.add_conversation_snippet(
+            conv_id=conv_id,
+            client_id=client_id,
+            turns=formatted_turns,
+            cache_hits=conv['cache_hits'],
+            total_tokens=conv['total_tokens']
+        )
     
     def start(self):
         """Start (no-op for web)."""
@@ -277,6 +356,40 @@ async def get_info():
             "ShareGPT integration" if TEXT_MODE_AVAILABLE else None,
             "Configurable cache parameters"
         ]
+    }
+
+
+@app.get("/api/debug")
+async def debug_info():
+    """Debug endpoint to check active simulations."""
+    debug_data = {}
+    for sim_id, sim_data in active_simulations.items():
+        collector = sim_data['collector']
+        convs = list(collector.conversations.values())
+        debug_data[sim_id] = {
+            'status': sim_data['status'],
+            'num_events': len(collector.events),
+            'num_conversations': len(collector.conversations),
+            'conversation_ids': list(collector.conversations.keys())[:5],
+            'sample_conversation': convs[0] if convs else None,
+            'all_conversations': convs[:3]  # First 3 conversations
+        }
+    return debug_data
+
+
+@app.get("/api/test-conversations")
+async def test_conversations():
+    """Test endpoint to manually get conversations."""
+    if not active_simulations:
+        return {"error": "No active simulations"}
+    
+    sim_id = list(active_simulations.keys())[0]
+    collector = active_simulations[sim_id]['collector']
+    
+    return {
+        'sim_id': sim_id,
+        'total_conversations': len(collector.conversations),
+        'conversations': list(collector.conversations.values())[:5]
     }
 
 
@@ -332,6 +445,24 @@ async def run_simulation_task(
             config.assistant_tokens_avg + 20
         )
         
+        # Parse conversation template first (needed for synthetic generation)
+        template_map = {
+            'quick_qa': ConversationTemplate.QUICK_QA,
+            'standard': ConversationTemplate.STANDARD_CHAT,
+            'deep_dive': ConversationTemplate.DEEP_DIVE,
+            'debug': ConversationTemplate.DEBUG_SESSION,
+            'mixed': ConversationTemplate.MIXED
+        }
+        template = template_map.get(
+            config.conversation_template,
+            ConversationTemplate.STANDARD_CHAT
+        )
+        
+        collector.add_event(
+            'info',
+            f'Using template: {template.value}'
+        )
+        
         # Generate conversations
         if config.text_mode and TEXT_MODE_AVAILABLE and config.dataset_path:
             collector.add_event('info', 
@@ -371,9 +502,9 @@ async def run_simulation_task(
         visualizer = WebVisualizer(
             collector,
             max_total_turns=config.max_total_turns,
-            time_limit=config.time_limit
+            time_limit=config.time_limit,
+            total_blocks=config.total_blocks
         )
-        visualizer.cache_total = config.total_blocks
         
         # Log limits
         if config.max_total_turns > 0:
@@ -398,29 +529,6 @@ async def run_simulation_task(
             sampling = ConversationSampling.RANDOM
         
         collector.add_event('info', 'Starting simulation...')
-        
-        # Parse conversation template
-        from multi_user_simulator import (
-            ConversationTemplate,
-            generate_conversation_from_template
-        )
-        
-        template_map = {
-            'quick_qa': ConversationTemplate.QUICK_QA,
-            'standard': ConversationTemplate.STANDARD_CHAT,
-            'deep_dive': ConversationTemplate.DEEP_DIVE,
-            'debug': ConversationTemplate.DEBUG_SESSION,
-            'mixed': ConversationTemplate.MIXED
-        }
-        template = template_map.get(
-            config.conversation_template,
-            ConversationTemplate.STANDARD_CHAT
-        )
-        
-        collector.add_event(
-            'info',
-            f'Using template: {template.value}'
-        )
         
         # Prepare conversation generator parameters for continuous mode
         # Using template-based generation
@@ -487,7 +595,9 @@ async def get_simulation(sim_id: str):
         'sim_id': sim_id,
         'status': sim_data['status'],
         'config': sim_data['config'],
-        'summary': collector.get_summary()
+        'summary': collector.get_summary(),
+        'num_conversations': len(collector.conversations),
+        'conversation_ids': list(collector.conversations.keys())[:10]
     }
 
 
@@ -507,6 +617,7 @@ async def websocket_endpoint(websocket: WebSocket, sim_id: str):
     try:
         collector = active_simulations[sim_id]['collector']
         last_event_idx = 0
+        sent_conversations = {}  # Track last sent timestamp for each conv
         
         while True:
             # Send new events
@@ -517,6 +628,22 @@ async def websocket_endpoint(websocket: WebSocket, sim_id: str):
                     'data': new_events
                 })
                 last_event_idx = len(collector.events)
+            
+            # Send new/updated conversations
+            for conv_id, conv_data in collector.conversations.items():
+                last_updated = conv_data['last_updated']
+                last_sent = sent_conversations.get(conv_id, 0)
+                
+                # Send if: never sent before OR updated since last sent
+                should_send = (conv_id not in sent_conversations or 
+                               last_updated > last_sent)
+                
+                if should_send:
+                    await websocket.send_json({
+                        'type': 'conversation',
+                        'data': conv_data
+                    })
+                    sent_conversations[conv_id] = time.time()
             
             # Send current metrics
             await websocket.send_json({

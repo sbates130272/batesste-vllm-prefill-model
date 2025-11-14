@@ -39,6 +39,13 @@ data/*.json
 # Temporary scripts
 scripts/commit-*.sh
 test-spelling.sh
+restart-*.sh
+check-*.sh
+review-*.sh
+stage-*.sh
+
+# Debug/test pages
+web/static/test.html
 
 # Web UI virtual environment
 web/venv/

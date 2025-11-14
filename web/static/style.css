@@ -191,6 +191,111 @@ header h1 {
     max-height: 300px;
 }
 
+/* Conversations Box */
+.conv-count {
+    font-size: 0.9rem;
+    color: #999;
+    font-weight: normal;
+}
+
+.conversations-box {
+    max-height: 500px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 6px;
+}
+
+.no-conversations {
+    color: #999;
+    text-align: center;
+    font-style: italic;
+    padding: 20px;
+}
+
+.conversation-item {
+    background: white;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 12px;
+    border-left: 4px solid #667eea;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.conversation-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.conversation-id {
+    font-weight: 600;
+    color: #667eea;
+    font-size: 0.9rem;
+}
+
+.conversation-client {
+    color: #666;
+    font-size: 0.85rem;
+}
+
+.conversation-turn {
+    margin-bottom: 8px;
+}
+
+.turn-label {
+    font-weight: 600;
+    color: #555;
+    font-size: 0.85rem;
+    margin-bottom: 3px;
+}
+
+.turn-user {
+    color: #28a745;
+}
+
+.turn-assistant {
+    color: #667eea;
+}
+
+.turn-content {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #333;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.conversation-stats {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #e0e0e0;
+    font-size: 0.8rem;
+    color: #666;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.stat-label {
+    font-weight: 600;
+}
+
+.cache-hit {
+    color: #28a745;
+}
+
 /* Events Log */
 .events-log {
     max-height: 400px;
@@ -276,21 +381,25 @@ footer a {
 }
 
 /* Scrollbar */
-.events-log::-webkit-scrollbar {
+.events-log::-webkit-scrollbar,
+.conversations-box::-webkit-scrollbar {
     width: 8px;
 }
 
-.events-log::-webkit-scrollbar-track {
+.events-log::-webkit-scrollbar-track,
+.conversations-box::-webkit-scrollbar-track {
     background: #f1f1f1;
     border-radius: 4px;
 }
 
-.events-log::-webkit-scrollbar-thumb {
+.events-log::-webkit-scrollbar-thumb,
+.conversations-box::-webkit-scrollbar-thumb {
     background: #888;
     border-radius: 4px;
 }
 
-.events-log::-webkit-scrollbar-thumb:hover {
+.events-log::-webkit-scrollbar-thumb:hover,
+.conversations-box::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
 

@@ -3,6 +3,7 @@
 let currentSimId = null;
 let ws = null;
 let charts = {};
+let conversationCount = 0;
 
 // Initialize charts
 function initCharts() {
@@ -213,6 +214,94 @@ function addEvent(event) {
     eventsLog.scrollTop = eventsLog.scrollHeight;
 }
 
+// Display conversation snippet
+function displayConversation(conv) {
+    const conversationsBox = document.getElementById('conversationsBox');
+    
+    // Remove "no conversations" message if present
+    const noConvMsg = conversationsBox.querySelector('.no-conversations');
+    if (noConvMsg) {
+        noConvMsg.remove();
+    }
+    
+    // Create conversation item
+    const convItem = document.createElement('div');
+    convItem.className = 'conversation-item';
+    convItem.id = `conv-${conv.conv_id}`;
+    
+    let turnsHtml = '';
+    if (conv.turns && conv.turns.length > 0) {
+        // Show last 2 turns for brevity
+        const recentTurns = conv.turns.slice(-2);
+        recentTurns.forEach(turn => {
+            const isUser = turn.role === 'user';
+            turnsHtml += `
+                <div class="conversation-turn">
+                    <div class="turn-label ${isUser ? 'turn-user' : 
+                                                        'turn-assistant'}">
+                        ${isUser ? '👤 User' : '🤖 Assistant'}:
+                    </div>
+                    <div class="turn-content">${escapeHtml(turn.content)}
+                    </div>
+                </div>
+            `;
+        });
+    }
+    
+    convItem.innerHTML = `
+        <div class="conversation-header">
+            <div class="conversation-id">${conv.conv_id}</div>
+            <div class="conversation-client">Client ${conv.client_id}</div>
+        </div>
+        ${turnsHtml}
+        <div class="conversation-stats">
+            <div class="stat-item">
+                <span class="stat-label">Turns:</span>
+                <span>${conv.num_turns || 0}</span>
+            </div>
+            ${conv.cache_hits !== undefined ? `
+                <div class="stat-item cache-hit">
+                    <span class="stat-label">Cache Hits:</span>
+                    <span>${conv.cache_hits}</span>
+                </div>
+            ` : ''}
+            ${conv.total_tokens !== undefined ? `
+                <div class="stat-item">
+                    <span class="stat-label">Tokens:</span>
+                    <span>${conv.total_tokens}</span>
+                </div>
+            ` : ''}
+        </div>
+    `;
+    
+    // Check if conversation already exists and update it
+    const existingConv = document.getElementById(`conv-${conv.conv_id}`);
+    if (existingConv) {
+        existingConv.replaceWith(convItem);
+    } else {
+        // Add to top of list
+        conversationsBox.insertBefore(convItem, conversationsBox.firstChild);
+        
+        // Increment counter for new conversations
+        conversationCount++;
+        document.getElementById('convCount').textContent = 
+            `(${conversationCount})`;
+        
+        // Limit to 10 conversations displayed
+        const items = conversationsBox.querySelectorAll('.conversation-item');
+        if (items.length > 10) {
+            items[items.length - 1].remove();
+        }
+    }
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // Update status display
 function updateStatus(status, clientStats = null) {
     const statusContent = document.getElementById('statusContent');
@@ -293,6 +382,10 @@ document.getElementById('configForm').addEventListener('submit',
     
     // Clear previous data
     document.getElementById('eventsLog').innerHTML = '';
+    document.getElementById('conversationsBox').innerHTML = 
+        '<p class="no-conversations">No active conversations yet</p>';
+    conversationCount = 0;
+    document.getElementById('convCount').textContent = '(0)';
     Object.values(charts).forEach(chart => {
         chart.data.labels = [];
         chart.data.datasets.forEach(dataset => dataset.data = []);
@@ -362,10 +455,17 @@ function connectWebSocket(simId) {
                 }
                 break;
             
+            case 'conversation':
+                displayConversation(message.data);
+                break;
+            
             case 'complete':
                 console.log('Simulation complete', message.data);
                 onSimulationComplete();
                 break;
+            
+            default:
+                console.log('Unknown message type:', message.type);
         }
     };
     
