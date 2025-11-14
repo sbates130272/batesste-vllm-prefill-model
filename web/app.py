@@ -100,6 +100,7 @@ class WebSimulationCollector:
         self.conversations: Dict[str, Dict] = {}
         self.start_time = time.time()
         self.status = "running"
+        self.active_conv_history: List[int] = []  # Track active conv counts
     
     def add_event(self, event_type: str, message: str, data: dict = None):
         """Add an event to the log."""
@@ -132,6 +133,7 @@ class WebSimulationCollector:
         hit_rate = (hit_count / total_tokens * 100) if total_tokens > 0 else 0
         self.metrics['cache_hit_rate'].append(hit_rate)
         self.metrics['active_conversations'].append(active_convs)
+        self.active_conv_history.append(active_convs)
     
     def add_conversation_snippet(
         self,
@@ -152,9 +154,28 @@ class WebSimulationCollector:
             'last_updated': time.time()
         }
     
-    def finalize(self, client_stats: Dict[int, ClientStats]):
+    def finalize(self, client_stats: Dict[int, ClientStats], 
+                 total_conversations: int = 0, total_turns: int = 0):
         """Finalize simulation with client statistics."""
         self.status = "completed"
+        self.total_conversations = total_conversations
+        self.total_turns = total_turns
+        
+        # Calculate active conversation statistics
+        if self.active_conv_history:
+            import statistics
+            self.active_conv_stats = {
+                'min': min(self.active_conv_history),
+                'max': max(self.active_conv_history),
+                'avg': statistics.mean(self.active_conv_history),
+                'std': statistics.stdev(self.active_conv_history) 
+                       if len(self.active_conv_history) > 1 else 0
+            }
+        else:
+            self.active_conv_stats = {
+                'min': 0, 'max': 0, 'avg': 0, 'std': 0
+            }
+        
         for client_id, stats in client_stats.items():
             self.client_stats[client_id] = {
                 'requests_sent': stats.requests_sent,
@@ -173,6 +194,9 @@ class WebSimulationCollector:
             'status': self.status,
             'duration': time.time() - self.start_time,
             'events': len(self.events),
+            'total_conversations': getattr(self, 'total_conversations', 0),
+            'total_turns': getattr(self, 'total_turns', 0),
+            'active_conv_stats': getattr(self, 'active_conv_stats', {}),
             'client_stats': self.client_stats,
             'metrics': self.metrics
         }
@@ -551,8 +575,11 @@ async def run_simulation_task(
             conversation_generator_params=generator_params
         )
         
-        # Finalize
-        collector.finalize(client_stats)
+        # Finalize - calculate totals
+        total_conversations = config.num_conversations
+        total_turns = sum(stats.requests_sent for stats in client_stats.values())
+        
+        collector.finalize(client_stats, total_conversations, total_turns)
         collector.add_event('success', 'Simulation completed successfully')
         active_simulations[sim_id]['status'] = 'completed'
         

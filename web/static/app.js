@@ -4,6 +4,21 @@ let currentSimId = null;
 let ws = null;
 let charts = {};
 let conversationCount = 0;
+let simulationStartTime = null;
+let runtimeInterval = null;
+
+// Model configurations for memory calculations
+const MODEL_CONFIGS = {
+    'llama2-7b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'llama2-13b': { hidden_dim: 5120, num_layers: 40, dtype_bytes: 2 },
+    'llama2-70b': { hidden_dim: 8192, num_layers: 80, dtype_bytes: 2 },
+    'llama3-8b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'llama3-70b': { hidden_dim: 8192, num_layers: 80, dtype_bytes: 2 },
+    'mistral-7b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'mixtral-8x7b': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 },
+    'gpt-j-6b': { hidden_dim: 4096, num_layers: 28, dtype_bytes: 2 },
+    'custom': { hidden_dim: 4096, num_layers: 32, dtype_bytes: 2 }
+};
 
 // Initialize charts
 function initCharts() {
@@ -303,13 +318,23 @@ function escapeHtml(text) {
 }
 
 // Update status display
-function updateStatus(status, clientStats = null) {
+function updateStatus(status, summaryData = null) {
     const statusContent = document.getElementById('statusContent');
     
     let html = `<p class="status-${status}">${getStatusMessage(status)}</p>`;
     
-    if (status === 'completed' && clientStats) {
+    // Add runtime for running simulations
+    if (status === 'running' && simulationStartTime) {
+        const elapsed = Math.floor((Date.now() - simulationStartTime) / 1000);
+        html += `<div class="runtime-display" id="runtimeDisplay">
+                   <strong>Runtime:</strong> ${formatTime(elapsed)}
+                 </div>`;
+    }
+    
+    if (status === 'completed' && summaryData) {
         html += '<div class="status-details">';
+        
+        const clientStats = summaryData.client_stats || summaryData;
         
         // Calculate totals
         let totalRequests = 0;
@@ -325,6 +350,43 @@ function updateStatus(status, clientStats = null) {
         const overallHitRate = totalInputTokens > 0 ? 
             (totalCachedTokens / totalInputTokens * 100).toFixed(1) : 0;
         
+        // Show final runtime
+        if (simulationStartTime) {
+            const totalTime = Math.floor((Date.now() - simulationStartTime) / 1000);
+            html += `
+                <div><strong>Total Runtime:</strong> ${formatTime(totalTime)}</div>
+            `;
+        }
+        
+        // Show total conversations and turns
+        if (summaryData.total_conversations) {
+            html += `
+                <div><strong>Total Conversations:</strong> 
+                     ${summaryData.total_conversations.toLocaleString()}</div>
+            `;
+        }
+        
+        if (summaryData.total_turns) {
+            html += `
+                <div><strong>Total Turns:</strong> 
+                     ${summaryData.total_turns.toLocaleString()}</div>
+            `;
+        }
+        
+        // Show active conversation statistics
+        if (summaryData.active_conv_stats) {
+            const stats = summaryData.active_conv_stats;
+            html += `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                    <strong>Active Conversations:</strong>
+                    Min: ${stats.min}, 
+                    Max: ${stats.max}, 
+                    Avg: ${stats.avg.toFixed(1)}, 
+                    Std: ${stats.std.toFixed(2)}
+                </div>
+            `;
+        }
+        
         html += `
             <div><strong>Total Requests:</strong> 
                  ${totalRequests.toLocaleString()}</div>
@@ -338,6 +400,43 @@ function updateStatus(status, clientStats = null) {
     }
     
     statusContent.innerHTML = html;
+}
+
+// Format time as HH:MM:SS or MM:SS
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+}
+
+// Update runtime display every second
+function startRuntimeCounter() {
+    // Clear any existing interval
+    if (runtimeInterval) {
+        clearInterval(runtimeInterval);
+    }
+    
+    runtimeInterval = setInterval(() => {
+        const runtimeDisplay = document.getElementById('runtimeDisplay');
+        if (runtimeDisplay && simulationStartTime) {
+            const elapsed = Math.floor((Date.now() - simulationStartTime) / 1000);
+            runtimeDisplay.innerHTML = `<strong>Runtime:</strong> ${formatTime(elapsed)}`;
+        }
+    }, 1000);
+}
+
+// Stop runtime counter
+function stopRuntimeCounter() {
+    if (runtimeInterval) {
+        clearInterval(runtimeInterval);
+        runtimeInterval = null;
+    }
 }
 
 function getStatusMessage(status) {
@@ -386,6 +485,8 @@ document.getElementById('configForm').addEventListener('submit',
         '<p class="no-conversations">No active conversations yet</p>';
     conversationCount = 0;
     document.getElementById('convCount').textContent = '(0)';
+    simulationStartTime = null;
+    stopRuntimeCounter();
     Object.values(charts).forEach(chart => {
         chart.data.labels = [];
         chart.data.datasets.forEach(dataset => dataset.data = []);
@@ -432,7 +533,9 @@ function connectWebSocket(simId) {
     
     ws.onopen = () => {
         console.log('WebSocket connected');
+        simulationStartTime = Date.now();
         updateStatus('running');
+        startRuntimeCounter();
     };
     
     ws.onmessage = (event) => {
@@ -461,6 +564,7 @@ function connectWebSocket(simId) {
             
             case 'complete':
                 console.log('Simulation complete', message.data);
+                updateStatus('completed', message.data);
                 onSimulationComplete();
                 break;
             
@@ -485,6 +589,8 @@ function onSimulationComplete() {
     document.getElementById('startBtn').classList.remove('loading');
     document.getElementById('stopBtn').disabled = true;
     
+    stopRuntimeCounter();
+    
     if (ws) {
         ws.close();
         ws = null;
@@ -500,9 +606,46 @@ document.getElementById('stopBtn').addEventListener('click', () => {
     updateStatus('idle');
 });
 
+// Calculate and display block size in memory
+function updateBlockSizeMemory() {
+    const modelPreset = document.getElementById('model_preset').value;
+    const blockSize = parseInt(document.getElementById('block_size').value) || 16;
+    const totalBlocks = parseInt(document.getElementById('total_blocks').value) || 500;
+    
+    const config = MODEL_CONFIGS[modelPreset];
+    if (!config) return;
+    
+    // KV cache memory per token = 2 (K + V) × hidden_dim × num_layers × dtype_bytes
+    const bytesPerToken = 2 * config.hidden_dim * config.num_layers * config.dtype_bytes;
+    const bytesPerBlock = bytesPerToken * blockSize;
+    const mibPerBlock = bytesPerBlock / (1024 * 1024);
+    
+    // Update block size display
+    const memoryDisplay = document.getElementById('block_size_memory');
+    memoryDisplay.textContent = `≈ ${mibPerBlock.toFixed(1)} MiB per block`;
+    
+    // Update total cache size display
+    const totalCacheMiB = mibPerBlock * totalBlocks;
+    const totalCacheGiB = totalCacheMiB / 1024;
+    
+    const totalMemoryDisplay = document.getElementById('total_cache_memory');
+    if (totalCacheGiB >= 1) {
+        totalMemoryDisplay.textContent = `Total cache: ${totalCacheGiB.toFixed(2)} GiB`;
+    } else {
+        totalMemoryDisplay.textContent = `Total cache: ${totalCacheMiB.toFixed(0)} MiB`;
+    }
+}
+
 // Initialize on page load
 window.addEventListener('load', () => {
     initCharts();
+    
+    // Setup memory calculation listeners
+    document.getElementById('model_preset').addEventListener('change', updateBlockSizeMemory);
+    document.getElementById('block_size').addEventListener('input', updateBlockSizeMemory);
+    document.getElementById('total_blocks').addEventListener('input', updateBlockSizeMemory);
+    updateBlockSizeMemory();
+    
     console.log('vLLM Simulator Web UI initialized');
 });
 

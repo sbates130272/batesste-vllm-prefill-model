@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>vLLM Prefix Caching Simulator</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -29,21 +30,44 @@
                         </div>
                         
                         <div class="form-group">
-                            <label for="num_conversations">Conversations</label>
+                            <label for="num_conversations">
+                                Total Conversations
+                            </label>
                             <input type="number" id="num_conversations" 
                                    value="100" min="1" max="10000">
                         </div>
                         
                         <div class="form-group">
-                            <label for="block_size">Block Size</label>
-                            <input type="number" id="block_size" 
-                                   value="16" min="1" max="128">
+                            <label for="model_preset">Model (for memory calc)</label>
+                            <select id="model_preset">
+                                <option value="llama2-7b">Llama 2 7B</option>
+                                <option value="llama2-13b">Llama 2 13B</option>
+                                <option value="llama2-70b">Llama 2 70B</option>
+                                <option value="llama3-8b">Llama 3 8B</option>
+                                <option value="llama3-70b">Llama 3 70B</option>
+                                <option value="mistral-7b">Mistral 7B</option>
+                                <option value="mixtral-8x7b">Mixtral 8x7B</option>
+                                <option value="gpt-j-6b">GPT-J 6B</option>
+                                <option value="custom">Custom</option>
+                            </select>
                         </div>
                         
                         <div class="form-group">
-                            <label for="total_blocks">Total Blocks</label>
+                            <label for="block_size">Block Size (tokens)</label>
+                            <input type="number" id="block_size" 
+                                   value="16" min="1" max="128">
+                            <div id="block_size_memory" style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                ≈ 8.0 MiB per block
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="total_blocks">Total Blocks (count)</label>
                             <input type="number" id="total_blocks" 
                                    value="500" min="10" max="100000">
+                            <div id="total_cache_memory" style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                Total cache: 4.0 GiB
+                            </div>
                         </div>
                         
                         <div class="form-group">
@@ -54,7 +78,7 @@
                         
                         <div class="form-group">
                             <label for="max_active_conversations">
-                                Max Active Convs
+                                Max Active Convs (per client)
                             </label>
                             <input type="number" id="max_active_conversations" 
                                    value="3" min="1" max="50">
@@ -70,7 +94,7 @@
                         
                         <div class="form-group">
                             <label for="time_limit">
-                                Time Limit in seconds (-1=infinite)
+                                Time Limit (-1=infinite)
                             </label>
                             <input type="number" id="time_limit" 
                                    value="60" min="-1" max="3600">
@@ -138,6 +162,40 @@
                 </div>
             </div>
 
+            <!-- Advanced Analytics (Future Feature - Coming Soon) -->
+            <div class="analytics-section" style="display: none;">
+                <h2>📈 Advanced Analytics</h2>
+                
+                <div class="analytics-grid">
+                    <!-- Cache Heatmap -->
+                    <div class="chart-container heatmap-container">
+                        <h3>🔥 Cache Hit Heatmap
+                            <button class="export-btn" id="exportHeatmap" 
+                                    title="Export as PNG">📥</button>
+                        </h3>
+                        <canvas id="heatmapChart"></canvas>
+                    </div>
+                    
+                    <!-- Per-Conversation Effectiveness -->
+                    <div class="chart-container">
+                        <h3>📊 Per-Conversation Cache Effectiveness
+                            <button class="export-btn" id="exportConvChart" 
+                                    title="Export as PNG">📥</button>
+                        </h3>
+                        <canvas id="convEffectivenessChart"></canvas>
+                    </div>
+                    
+                    <!-- Prefix Overlap Analysis -->
+                    <div class="chart-container">
+                        <h3>🔗 Prefix Overlap Analysis
+                            <button class="export-btn" id="exportPrefixChart" 
+                                    title="Export as PNG">📥</button>
+                        </h3>
+                        <canvas id="prefixOverlapChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <!-- Conversations Panel -->
             <div class="panel conversations-panel">
                 <h2>💬 Live Conversations 
@@ -155,6 +213,81 @@
                 <h2>📝 Events Log</h2>
                 <div id="eventsLog" class="events-log"></div>
             </div>
+
+            <!-- Dataset Upload -->
+            <div class="panel dataset-panel">
+                <h2>📚 Dataset Management</h2>
+                
+                <div class="dataset-upload">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-icon">📁</div>
+                        <p>Drag & drop ShareGPT JSON file here</p>
+                        <p class="upload-or">or</p>
+                        <button type="button" class="btn btn-secondary" 
+                                onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                        <input type="file" id="fileInput" accept=".json" 
+                               style="display:none;">
+                    </div>
+                    
+                    <div id="datasetInfo" class="dataset-info" style="display:none;">
+                        <h3>📊 Dataset Statistics</h3>
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <span class="stat-value" id="statConvs">0</span>
+                                <span class="stat-label">Conversations</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-value" id="statMessages">0</span>
+                                <span class="stat-label">Messages</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-value" id="statAvgTurns">0</span>
+                                <span class="stat-label">Avg Turns</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-value" id="statTurnRange">0-0</span>
+                                <span class="stat-label">Turn Range</span>
+                            </div>
+                        </div>
+                        
+                        <div class="dataset-filters">
+                            <label>
+                                <input type="checkbox" id="useDataset">
+                                Use uploaded dataset for simulation
+                            </label>
+                            <div class="filter-controls" id="filterControls" 
+                                 style="display:none;">
+                                <label>
+                                    Min turns:
+                                    <input type="number" id="minTurns" 
+                                           value="2" min="1">
+                                </label>
+                                <label>
+                                    Max turns:
+                                    <input type="number" id="maxTurns" 
+                                           value="20" min="1">
+                                </label>
+                                <label>
+                                    Tokenizer:
+                                    <select id="tokenizer">
+                                        <option value="gpt2">GPT-2</option>
+                                        <option value="gpt-3.5-turbo">GPT-3.5-Turbo</option>
+                                        <option value="gpt-4">GPT-4</option>
+                                        <option value="claude-2">Claude-2</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="btn btn-secondary" 
+                                id="clearDataset">
+                            Clear Dataset
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <footer>
@@ -164,6 +297,7 @@
         </footer>
     </div>
 
+    <script src="/static/analytics.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>
