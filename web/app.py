@@ -49,6 +49,37 @@ try:
 except ImportError:
     TEXT_MODE_AVAILABLE = False
 
+# Try to load a default tokenizer
+TOKENIZER = None
+TOKENIZER_DECODE_CACHE = {}  # Cache for token ID -> text mapping
+try:
+    from transformers import AutoTokenizer
+    TOKENIZER = AutoTokenizer.from_pretrained("gpt2")
+    print("✓ Loaded GPT-2 tokenizer for text generation")
+except ImportError:
+    print("⚠ transformers not installed. Run: pip install transformers")
+    print("  Using synthetic token IDs instead of real text.")
+except Exception as e:
+    print(f"⚠ Could not load tokenizer: {e}")
+    print("  Using synthetic token IDs instead of real text.")
+
+
+def decode_tokens(token_ids: List[int]) -> List[str]:
+    """Decode token IDs to text strings."""
+    if not TOKENIZER:
+        # Return token IDs as strings if no tokenizer
+        return [f"tok_{tid}" for tid in token_ids]
+    
+    result = []
+    for tid in token_ids:
+        if tid not in TOKENIZER_DECODE_CACHE:
+            try:
+                TOKENIZER_DECODE_CACHE[tid] = TOKENIZER.decode([tid])
+            except:
+                TOKENIZER_DECODE_CACHE[tid] = f"<{tid}>"
+        result.append(TOKENIZER_DECODE_CACHE[tid])
+    return result
+
 
 app = FastAPI(
     title="vLLM Prefill Model Simulator",
@@ -63,7 +94,6 @@ active_simulations: Dict[str, dict] = {}
 class SimulationConfig(BaseModel):
     """Configuration for a simulation run."""
     num_clients: int = 3
-    num_conversations: int = 100
     num_turns: Optional[int] = None
     block_size: int = 16
     total_blocks: int = 500
@@ -73,7 +103,7 @@ class SimulationConfig(BaseModel):
     assistant_tokens_avg: int = 100
     request_rate: float = 0.0
     max_active_conversations: int = 3
-    max_total_turns: int = 0  # 0 = unlimited
+    max_total_turns: int = 0  # 0 = unlimited (per simulation)
     time_limit: int = 60  # seconds, -1 = infinite
     sampling_strategy: str = "round_robin"
     conversation_template: str = "standard"  # Template for conversation patterns
@@ -100,11 +130,6 @@ class WebSimulationCollector:
         self.conversations: Dict[str, Dict] = {}
         self.start_time = time.time()
         self.status = "running"
-<<<<<<< Updated upstream
-        self.active_conv_history: List[int] = []  # Track active conv counts
-=======
-<<<<<<< Updated upstream
-=======
         self.active_conv_history: List[int] = []  # Track active conv counts
         
         # Advanced analytics data
@@ -115,8 +140,25 @@ class WebSimulationCollector:
             'unique_tokens': 0,
             'total_cached_tokens': 0
         }
->>>>>>> Stashed changes
->>>>>>> Stashed changes
+        
+        # Cache state log
+        self.cache_state_log: List[Dict] = []
+        self.last_cache_hit: Dict = {}
+        self.recent_cache_hits: List[Dict] = []  # Last 5 hits
+        
+        # Conversation duration tracking
+        self.conversation_durations: List[float] = []  # In seconds
+        self.conversation_start_times: Dict[str, float] = {}  # conv_id -> start time
+        
+        # Conversation similarity tracking
+        self.conversation_tokens: Dict[str, List[int]] = {}  # conv_id -> token sequence
+        
+        # Initialize heatmap with starting point at t=0
+        self.heatmap_data.append({
+            'time': 0.0,
+            'hit_rate': 0.0,
+            'active_convs': 0
+        })
     
     def add_event(self, event_type: str, message: str, data: dict = None):
         """Add an event to the log."""
@@ -153,6 +195,56 @@ class WebSimulationCollector:
         
         # Update analytics with current metrics
         self.update_analytics_point(hit_rate, active_convs)
+        
+        # Log cache state (every few seconds)
+        current_time = time.time() - self.start_time
+        if not self.cache_state_log or current_time - self.cache_state_log[-1]['timestamp'] >= 2.0:
+            self.add_cache_state_log(cache_used, cache_total, hit_rate)
+    
+    def add_cache_state_log(self, blocks_used: int, blocks_total: int, hit_rate: float):
+        """Add cache state log entry."""
+        current_time = time.time() - self.start_time
+        occupancy = (blocks_used / blocks_total * 100) if blocks_total > 0 else 0
+        
+        # Calculate instantaneous hit rate (if cache is empty, rate is 0)
+        instant_hit_rate = hit_rate if blocks_used > 0 else 0.0
+        
+        entry = {
+            'timestamp': current_time,
+            'blocks_used': blocks_used,
+            'blocks_total': blocks_total,
+            'occupancy': occupancy,
+            'hit_rate_cumulative': hit_rate,  # Overall average
+            'hit_rate_instant': instant_hit_rate,  # Current state
+            'last_hit': self.last_cache_hit.copy() if self.last_cache_hit else None,
+            'recent_hits': self.recent_cache_hits.copy()  # Last 5 hits
+        }
+        
+        self.cache_state_log.append(entry)
+        # Keep last 100 entries
+        if len(self.cache_state_log) > 100:
+            self.cache_state_log.pop(0)
+    
+    def record_cache_hit(self, block_hash: str, tokens: List[int], conv_id: str):
+        """Record a cache hit with block details."""
+        # Decode tokens to text
+        token_texts = decode_tokens(tokens[:10])
+        
+        hit = {
+            'block_hash': block_hash,  # Full MD5 hash (32 chars)
+            'token_count': len(tokens),
+            'tokens_preview': tokens[:10],  # First 10 token IDs
+            'tokens_text': token_texts,  # Decoded text
+            'conv_id': conv_id,
+            'timestamp': time.time() - self.start_time
+        }
+        
+        self.last_cache_hit = hit
+        
+        # Add to recent hits (keep last 5)
+        self.recent_cache_hits.append(hit)
+        if len(self.recent_cache_hits) > 5:
+            self.recent_cache_hits.pop(0)
     
     def update_analytics_point(self, hit_rate: float, active_convs: int):
         """Add a point to the heatmap data."""
@@ -186,6 +278,12 @@ class WebSimulationCollector:
         self.conv_effectiveness[conv_id]['total_tokens'] += total_tokens
         self.conv_effectiveness[conv_id]['cached_tokens'] += cache_hits
         self.conv_effectiveness[conv_id]['requests'] += 1
+        
+        # Update aggregate prefix stats
+        self.prefix_stats['total_cached_tokens'] += cache_hits
+        self.prefix_stats['unique_tokens'] += (total_tokens - cache_hits)
+        # Estimate common prefix (first 10% of cached tokens are likely common prefix)
+        self.prefix_stats['common_prefix_tokens'] += int(cache_hits * 0.1)
     
     def get_analytics_summary(self) -> dict:
         """Get analytics data for visualization."""
@@ -205,10 +303,14 @@ class WebSimulationCollector:
         conv_hit_rates.sort(key=lambda x: x['hit_rate'], reverse=True)
         top_convs = conv_hit_rates[:10]
         
+        # Calculate conversation similarities
+        similarities = self.calculate_conversation_similarities() if self.conversation_tokens else None
+        
         return {
             'heatmap': self.heatmap_data[-50:],  # Last 50 points for display
             'top_conversations': top_convs,
-            'prefix_overlap': self.prefix_stats.copy()
+            'prefix_overlap': self.prefix_stats.copy(),
+            'conversation_similarities': similarities
         }
     
     def add_conversation_snippet(
@@ -220,6 +322,12 @@ class WebSimulationCollector:
         total_tokens: int = 0
     ):
         """Add or update a conversation snippet."""
+        current_time = time.time()
+        
+        # Track conversation start time
+        if conv_id not in self.conversation_start_times:
+            self.conversation_start_times[conv_id] = current_time
+        
         self.conversations[conv_id] = {
             'conv_id': conv_id,
             'client_id': client_id,
@@ -227,19 +335,83 @@ class WebSimulationCollector:
             'num_turns': len(turns),
             'cache_hits': cache_hits,
             'total_tokens': total_tokens,
-            'last_updated': time.time()
+            'last_updated': current_time
+        }
+        
+        # Track conversation effectiveness for analytics
+        if total_tokens > 0:
+            self.update_conversation_effectiveness(conv_id, cache_hits, total_tokens)
+    
+    def record_conversation_completion(self, conv_id: str):
+        """Record when a conversation completes."""
+        if conv_id in self.conversation_start_times:
+            start_time = self.conversation_start_times[conv_id]
+            duration = time.time() - start_time
+            self.conversation_durations.append(duration)
+            del self.conversation_start_times[conv_id]
+    
+    def record_conversation_tokens(self, conv_id: str, tokens: List[int]):
+        """Record token sequence for a conversation."""
+        if conv_id not in self.conversation_tokens:
+            self.conversation_tokens[conv_id] = []
+        self.conversation_tokens[conv_id] = tokens
+    
+    def calculate_conversation_similarities(self) -> Dict:
+        """
+        Calculate pairwise similarities between conversations.
+        Returns metrics useful for cache analysis.
+        """
+        conv_ids = list(self.conversation_tokens.keys())[:20]  # Top 20 for visualization
+        
+        similarities = []
+        for i, conv_id_a in enumerate(conv_ids):
+            for j, conv_id_b in enumerate(conv_ids):
+                if i >= j:
+                    continue  # Only upper triangle
+                
+                tokens_a = self.conversation_tokens[conv_id_a]
+                tokens_b = self.conversation_tokens[conv_id_b]
+                
+                # Calculate prefix overlap (most relevant for caching)
+                prefix_len = 0
+                for k in range(min(len(tokens_a), len(tokens_b))):
+                    if tokens_a[k] == tokens_b[k]:
+                        prefix_len += 1
+                    else:
+                        break
+                
+                # Calculate Jaccard similarity
+                set_a = set(tokens_a)
+                set_b = set(tokens_b)
+                intersection = len(set_a & set_b)
+                union = len(set_a | set_b)
+                jaccard = intersection / union if union > 0 else 0
+                
+                similarities.append({
+                    'conv_a': conv_id_a,
+                    'conv_b': conv_id_b,
+                    'prefix_overlap': prefix_len,
+                    'jaccard_similarity': jaccard,
+                    'total_tokens_a': len(tokens_a),
+                    'total_tokens_b': len(tokens_b)
+                })
+        
+        return {
+            'conversation_ids': conv_ids,
+            'similarities': similarities
         }
     
     def finalize(self, client_stats: Dict[int, ClientStats], 
                  total_conversations: int = 0, total_turns: int = 0):
         """Finalize simulation with client statistics."""
+        import statistics
+        
         self.status = "completed"
         self.total_conversations = total_conversations
         self.total_turns = total_turns
         
         # Calculate active conversation statistics
         if self.active_conv_history:
-            import statistics
             self.active_conv_stats = {
                 'min': min(self.active_conv_history),
                 'max': max(self.active_conv_history),
@@ -250,6 +422,21 @@ class WebSimulationCollector:
         else:
             self.active_conv_stats = {
                 'min': 0, 'max': 0, 'avg': 0, 'std': 0
+            }
+        
+        # Calculate conversation duration statistics
+        if self.conversation_durations:
+            self.conv_duration_stats = {
+                'min': min(self.conversation_durations),
+                'max': max(self.conversation_durations),
+                'avg': statistics.mean(self.conversation_durations),
+                'std': statistics.stdev(self.conversation_durations)
+                       if len(self.conversation_durations) > 1 else 0,
+                'count': len(self.conversation_durations)
+            }
+        else:
+            self.conv_duration_stats = {
+                'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0
             }
         
         for client_id, stats in client_stats.items():
@@ -273,6 +460,7 @@ class WebSimulationCollector:
             'total_conversations': getattr(self, 'total_conversations', 0),
             'total_turns': getattr(self, 'total_turns', 0),
             'active_conv_stats': getattr(self, 'active_conv_stats', {}),
+            'conv_duration_stats': getattr(self, 'conv_duration_stats', {}),
             'client_stats': self.client_stats,
             'metrics': self.metrics
         }
@@ -358,13 +546,19 @@ class WebVisualizer:
         """Add event."""
         self.collector.add_event('info', message)
     
+    def record_conversation_tokens(self, conv_id: str, tokens: List[int]):
+        """Record full token sequence for a conversation."""
+        self.collector.record_conversation_tokens(conv_id, tokens)
+    
     def add_conversation_snippet(
         self,
         client_id: int,
         conv_id: str,
         turn: int,
         text: str,
-        is_user: bool = True
+        is_user: bool = True,
+        cache_hit_count: int = 0,
+        token_count: int = 0
     ):
         """Add conversation snippet for web display."""
         # Initialize conversation if not exists
@@ -378,6 +572,12 @@ class WebVisualizer:
             }
         
         conv = self.conversation_data[conv_id]
+        
+        # Update cache stats (only for user messages since that's when
+        # cache hits are calculated)
+        if is_user and token_count > 0:
+            conv['cache_hits'] += cache_hit_count
+            conv['total_tokens'] += token_count
         
         # Ensure we have enough turn slots
         while len(conv['turns']) <= turn:
@@ -408,6 +608,15 @@ class WebVisualizer:
             cache_hits=conv['cache_hits'],
             total_tokens=conv['total_tokens']
         )
+    
+    def record_conversation_completion(self, conv_id: str):
+        """Record when a conversation completes."""
+        self.collector.record_conversation_completion(conv_id)
+    
+    def record_cache_hit(self, block_hash: str, tokens: List[int], 
+                         conv_id: str):
+        """Record a cache hit for analytics."""
+        self.collector.record_cache_hit(block_hash, tokens, conv_id)
     
     def start(self):
         """Start (no-op for web)."""
@@ -504,13 +713,22 @@ async def start_simulation(config: SimulationConfig):
     
     # Store simulation
     active_simulations[sim_id] = {
-        'config': config.model_dump(),
+        'config': config.dict(),  # Pydantic v1 compatibility
         'collector': collector,
         'status': 'starting'
     }
     
     # Start simulation in background
-    asyncio.create_task(run_simulation_task(sim_id, config, collector))
+    try:
+        task = asyncio.create_task(run_simulation_task(sim_id, config, collector))
+        print(f"[INFO] Background task created for {sim_id}: {task}")
+    except Exception as e:
+        print(f"[ERROR] Failed to create background task for {sim_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        active_simulations[sim_id]['status'] = 'error'
+        collector.add_event('error', f'Failed to start simulation: {str(e)}')
+        raise
     
     return {
         'sim_id': sim_id,
@@ -569,31 +787,47 @@ async def run_simulation_task(
                               f'Loading dataset: {config.dataset_path}')
             dataset = text_mode.TextModeDataset(
                 dataset_path=config.dataset_path,
-                tokenizer_name=config.tokenizer
+                tokenizer=TOKENIZER  # Use pre-loaded tokenizer
             )
+            # Load large pool of conversations (controlled by time/turns limits)
             dataset.load_sharegpt_dataset(
-                max_conversations=config.num_conversations * 2,
+                max_conversations=2000,
                 min_turns=2,
                 max_turns=20
             )
             conversations = dataset.get_text_conversations(
-                num_conversations=config.num_conversations,
+                num_conversations=1000,
                 common_prefix=config.common_prefix_text
             )
         else:
-            collector.add_event('info', 'Generating synthetic conversations')
-            
-            # Generate initial conversations using template
-            conversations = []
-            for i in range(config.num_conversations):
-                conv = generate_conversation_from_template(
-                    conv_id=f"conv_{i:04d}",
-                    template=template,
-                    common_prefix_tokens=config.common_prefix_tokens,
-                    client_id=0,
-                    conv_counter=i
+            # Use text mode if tokenizer is available
+            if TOKENIZER:
+                collector.add_event('info', 'Generating text conversations with GPT-2 tokenization')
+                from text_mode import TextModeDataset
+                
+                # Pass the pre-loaded tokenizer
+                dataset = TextModeDataset(tokenizer=TOKENIZER)
+                # Generate synthetic text conversations (no dataset path = synthetic)
+                dataset.load_sharegpt_dataset(max_conversations=1000)
+                conversations = dataset.get_text_conversations(
+                    num_conversations=1000,
+                    common_prefix="System: You are a helpful assistant."
                 )
-                conversations.append(conv)
+            else:
+                collector.add_event('info', 'Generating synthetic conversations')
+                
+                # Generate large pool of conversations (controlled by time/turns limits)
+                num_conversations = 1000  # Large pool
+                conversations = []
+                for i in range(num_conversations):
+                    conv = generate_conversation_from_template(
+                        conv_id=f"conv_{i:04d}",
+                        template=template,
+                        common_prefix_tokens=config.common_prefix_tokens,
+                        client_id=0,
+                        conv_counter=i
+                    )
+                    conversations.append(conv)
         
         collector.add_event('info', 
                           f'Generated {len(conversations)} conversations')
@@ -652,7 +886,7 @@ async def run_simulation_task(
         )
         
         # Finalize - calculate totals
-        total_conversations = config.num_conversations
+        total_conversations = len(collector.conv_effectiveness)  # Actual unique convs processed
         total_turns = sum(stats.requests_sent for stats in client_stats.values())
         
         collector.finalize(client_stats, total_conversations, total_turns)
@@ -753,6 +987,19 @@ async def websocket_endpoint(websocket: WebSocket, sim_id: str):
                 'type': 'metrics',
                 'data': collector.metrics
             })
+            
+            # Send analytics data (every update)
+            await websocket.send_json({
+                'type': 'analytics',
+                'data': collector.get_analytics_summary()
+            })
+            
+            # Send cache state log (last 20 entries)
+            if collector.cache_state_log:
+                await websocket.send_json({
+                    'type': 'cache_log',
+                    'data': collector.cache_state_log[-20:]
+                })
             
             # Send status
             await websocket.send_json({

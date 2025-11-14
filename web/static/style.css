@@ -343,6 +343,24 @@ header h1 {
     color: white;
 }
 
+/* Similarity Matrix */
+.similarity-container {
+    grid-column: span 2;
+}
+
+.similarity-legend {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.legend-separator {
+    color: #ccc;
+}
+
 /* Conversations Box */
 .conv-count {
     font-size: 0.9rem;
@@ -448,6 +466,14 @@ header h1 {
     color: #28a745;
 }
 
+/* Info icon */
+.info-icon {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    cursor: help;
+    margin-left: 8px;
+}
+
 /* Events Log */
 .events-log {
     max-height: 400px;
@@ -488,6 +514,82 @@ header h1 {
 .event-error {
     border-left-color: #dc3545;
     background: #fff5f5;
+}
+
+/* Cache Log */
+.cache-log {
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.cache-log-entry {
+    padding: 8px;
+    margin-bottom: 8px;
+    background: white;
+    border-left: 4px solid #667eea;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.cache-log-entry .timestamp {
+    color: #666;
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.cache-log-entry .cache-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+    margin-bottom: 6px;
+    font-size: 0.8rem;
+}
+
+.cache-log-entry .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.cache-log-entry .stat-label {
+    color: #666;
+    font-size: 0.8rem;
+}
+
+.cache-log-entry .stat-value {
+    font-weight: bold;
+    color: #333;
+    font-size: 0.8rem;
+}
+
+.cache-log-entry .cache-hit-info {
+    margin-top: 6px;
+    padding: 6px;
+    background: #e8f5e9;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.cache-log-entry .cache-hit-info .hit-label {
+    color: #2e7d32;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.cache-log-entry .tokens-preview {
+    color: #555;
+    font-family: monospace;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.65rem;
 }
 
 /* Footer */
@@ -534,24 +636,28 @@ footer a {
 
 /* Scrollbar */
 .events-log::-webkit-scrollbar,
-.conversations-box::-webkit-scrollbar {
+.conversations-box::-webkit-scrollbar,
+.cache-log::-webkit-scrollbar {
     width: 8px;
 }
 
 .events-log::-webkit-scrollbar-track,
-.conversations-box::-webkit-scrollbar-track {
+.conversations-box::-webkit-scrollbar-track,
+.cache-log::-webkit-scrollbar-track {
     background: #f1f1f1;
     border-radius: 4px;
 }
 
 .events-log::-webkit-scrollbar-thumb,
-.conversations-box::-webkit-scrollbar-thumb {
+.conversations-box::-webkit-scrollbar-thumb,
+.cache-log::-webkit-scrollbar-thumb {
     background: #888;
     border-radius: 4px;
 }
 
 .events-log::-webkit-scrollbar-thumb:hover,
-.conversations-box::-webkit-scrollbar-thumb:hover {
+.conversations-box::-webkit-scrollbar-thumb:hover,
+.cache-log::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
 

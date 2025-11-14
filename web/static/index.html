@@ -26,15 +26,7 @@
                         <div class="form-group">
                             <label for="num_clients">Number of Clients</label>
                             <input type="number" id="num_clients" 
-                                   value="3" min="1" max="10000">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="num_conversations">
-                                Total Conversations
-                            </label>
-                            <input type="number" id="num_conversations" 
-                                   value="100" min="1" max="10000">
+                                   value="128" min="1" max="10000">
                         </div>
                         
                         <div class="form-group">
@@ -55,9 +47,9 @@
                         <div class="form-group">
                             <label for="block_size">Block Size (tokens)</label>
                             <input type="number" id="block_size" 
-                                   value="16" min="1" max="128">
+                                   value="4" min="1" max="128">
                             <div id="block_size_memory" style="font-size: 0.85em; color: #666; margin-top: 4px;">
-                                ≈ 8.0 MiB per block
+                                ≈ 2.0 MiB per block
                             </div>
                         </div>
                         
@@ -81,7 +73,7 @@
                                 Max Active Convs (per client)
                             </label>
                             <input type="number" id="max_active_conversations" 
-                                   value="3" min="1" max="50">
+                                   value="8" min="1" max="50">
                         </div>
                         
                         <div class="form-group">
@@ -162,8 +154,8 @@
                 </div>
             </div>
 
-            <!-- Advanced Analytics (Future Feature - Coming Soon) -->
-            <div class="analytics-section" style="display: none;">
+            <!-- Advanced Analytics -->
+            <div class="panel analytics-section">
                 <h2>📈 Advanced Analytics</h2>
                 
                 <div class="analytics-grid">
@@ -193,6 +185,20 @@
                         </h3>
                         <canvas id="prefixOverlapChart"></canvas>
                     </div>
+                    
+                    <!-- Conversation Similarity Matrix -->
+                    <div class="chart-container similarity-container">
+                        <h3>🎯 Conversation Similarity Matrix
+                            <button class="export-btn" id="exportSimilarityChart" 
+                                    title="Export as PNG">📥</button>
+                        </h3>
+                        <div class="similarity-legend">
+                            <span>Prefix Overlap</span>
+                            <span class="legend-separator">|</span>
+                            <span>Jaccard Index</span>
+                        </div>
+                        <canvas id="similarityChart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -210,8 +216,18 @@
 
             <!-- Events Log -->
             <div class="panel events-panel">
-                <h2>📝 Events Log</h2>
+                <h2>📝 Events Log 
+                    <span class="info-icon" title="Shows key simulation events like conversation starts, completions, and errors">ℹ️</span>
+                </h2>
                 <div id="eventsLog" class="events-log"></div>
+            </div>
+            
+            <!-- Cache State Log -->
+            <div class="panel cache-log-panel">
+                <h2>🗄️ Cache State Log
+                    <span class="info-icon" title="Real-time cache state: blocks used, hit rates, and recent cache hits">ℹ️</span>
+                </h2>
+                <div id="cacheLog" class="cache-log"></div>
             </div>
 
             <!-- Dataset Upload -->
@@ -297,8 +313,8 @@
         </footer>
     </div>
 
-    <script src="/static/analytics.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/analytics.js?v=20250114g"></script>
+    <script src="/static/app.js?v=20250114f"></script>
 </body>
 </html>
 
