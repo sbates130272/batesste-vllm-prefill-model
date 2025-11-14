@@ -100,7 +100,23 @@ class WebSimulationCollector:
         self.conversations: Dict[str, Dict] = {}
         self.start_time = time.time()
         self.status = "running"
+<<<<<<< Updated upstream
         self.active_conv_history: List[int] = []  # Track active conv counts
+=======
+<<<<<<< Updated upstream
+=======
+        self.active_conv_history: List[int] = []  # Track active conv counts
+        
+        # Advanced analytics data
+        self.heatmap_data: List[Dict] = []  # Time-series cache hit data
+        self.conv_effectiveness: Dict[str, Dict] = {}  # Per-conversation stats
+        self.prefix_stats = {
+            'common_prefix_tokens': 0,
+            'unique_tokens': 0,
+            'total_cached_tokens': 0
+        }
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
     
     def add_event(self, event_type: str, message: str, data: dict = None):
         """Add an event to the log."""
@@ -134,6 +150,66 @@ class WebSimulationCollector:
         self.metrics['cache_hit_rate'].append(hit_rate)
         self.metrics['active_conversations'].append(active_convs)
         self.active_conv_history.append(active_convs)
+        
+        # Update analytics with current metrics
+        self.update_analytics_point(hit_rate, active_convs)
+    
+    def update_analytics_point(self, hit_rate: float, active_convs: int):
+        """Add a point to the heatmap data."""
+        current_time = time.time() - self.start_time
+        
+        # Sample heatmap data every 0.5 seconds
+        if not self.heatmap_data or current_time - self.heatmap_data[-1]['time'] >= 0.5:
+            self.heatmap_data.append({
+                'time': current_time,
+                'hit_rate': hit_rate,
+                'active_convs': active_convs
+            })
+            # Keep last 200 points
+            if len(self.heatmap_data) > 200:
+                self.heatmap_data.pop(0)
+    
+    def update_conversation_effectiveness(
+        self,
+        conv_id: str,
+        cache_hits: int,
+        total_tokens: int
+    ):
+        """Track per-conversation cache effectiveness."""
+        if conv_id not in self.conv_effectiveness:
+            self.conv_effectiveness[conv_id] = {
+                'total_tokens': 0,
+                'cached_tokens': 0,
+                'requests': 0
+            }
+        
+        self.conv_effectiveness[conv_id]['total_tokens'] += total_tokens
+        self.conv_effectiveness[conv_id]['cached_tokens'] += cache_hits
+        self.conv_effectiveness[conv_id]['requests'] += 1
+    
+    def get_analytics_summary(self) -> dict:
+        """Get analytics data for visualization."""
+        # Calculate per-conversation hit rates
+        conv_hit_rates = []
+        for conv_id, stats in self.conv_effectiveness.items():
+            if stats['total_tokens'] > 0:
+                hit_rate = (stats['cached_tokens'] / stats['total_tokens']) * 100
+                conv_hit_rates.append({
+                    'id': conv_id,
+                    'hit_rate': hit_rate,
+                    'requests': stats['requests'],
+                    'total_tokens': stats['total_tokens']
+                })
+        
+        # Sort by hit rate and take top 10
+        conv_hit_rates.sort(key=lambda x: x['hit_rate'], reverse=True)
+        top_convs = conv_hit_rates[:10]
+        
+        return {
+            'heatmap': self.heatmap_data[-50:],  # Last 50 points for display
+            'top_conversations': top_convs,
+            'prefix_overlap': self.prefix_stats.copy()
+        }
     
     def add_conversation_snippet(
         self,
