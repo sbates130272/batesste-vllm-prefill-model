@@ -149,7 +149,15 @@
                 </div>
                 
                 <div class="chart-container">
+                    <h3>Average Jaccard Similarity</h3>
+                    <canvas id="jaccardTimelineChart"></canvas>
+                </div>
+                
+                <div class="chart-container">
                     <h3>Per-Client Statistics</h3>
+                    <div id="clientStatsPlaceholder" class="chart-placeholder" style="display:none;">
+                        <p>📊 Client statistics will appear here after simulation completes</p>
+                    </div>
                     <canvas id="clientStatsChart"></canvas>
                 </div>
             </div>
@@ -159,16 +167,16 @@
                 <h2>📈 Advanced Analytics</h2>
                 
                 <div class="analytics-grid">
-                    <!-- Cache Heatmap -->
-                    <div class="chart-container heatmap-container">
-                        <h3>🔥 Cache Hit Heatmap
+                    <!-- Row 1, Col 1: Cache Heatmap -->
+                    <div class="chart-container">
+                        <h3>🔥 Cache Hit Rate Over Time
                             <button class="export-btn" id="exportHeatmap" 
                                     title="Export as PNG">📥</button>
                         </h3>
                         <canvas id="heatmapChart"></canvas>
                     </div>
                     
-                    <!-- Per-Conversation Effectiveness -->
+                    <!-- Row 1, Col 2: Per-Conversation Effectiveness -->
                     <div class="chart-container">
                         <h3>📊 Per-Conversation Cache Effectiveness
                             <button class="export-btn" id="exportConvChart" 
@@ -177,7 +185,7 @@
                         <canvas id="convEffectivenessChart"></canvas>
                     </div>
                     
-                    <!-- Prefix Overlap Analysis -->
+                    <!-- Row 2, Col 1: Prefix Overlap Analysis -->
                     <div class="chart-container">
                         <h3>🔗 Prefix Overlap Analysis
                             <button class="export-btn" id="exportPrefixChart" 
@@ -186,17 +194,12 @@
                         <canvas id="prefixOverlapChart"></canvas>
                     </div>
                     
-                    <!-- Conversation Similarity Matrix -->
-                    <div class="chart-container similarity-container">
-                        <h3>🎯 Conversation Similarity Matrix
+                    <!-- Row 2, Col 2: Conversation Similarity Heatmap -->
+                    <div class="chart-container">
+                        <h3>🎯 Conversation Similarity Heatmap
                             <button class="export-btn" id="exportSimilarityChart" 
                                     title="Export as PNG">📥</button>
                         </h3>
-                        <div class="similarity-legend">
-                            <span>Prefix Overlap</span>
-                            <span class="legend-separator">|</span>
-                            <span>Jaccard Index</span>
-                        </div>
                         <canvas id="similarityChart"></canvas>
                     </div>
                 </div>
@@ -313,8 +316,8 @@
         </footer>
     </div>
 
-    <script src="/static/analytics.js?v=20250114g"></script>
-    <script src="/static/app.js?v=20250114f"></script>
+    <script src="/static/analytics.js?v=20250114m"></script>
+    <script src="/static/app.js?v=20250114L"></script>
 </body>
 </html>
 

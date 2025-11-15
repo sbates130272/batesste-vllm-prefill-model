@@ -404,12 +404,16 @@ Request Cleanup:
 
 ### Design Decisions
 
-1. **Simplified Hashing**: Uses tuple of all tokens as cache key (real
-   vLLM uses more sophisticated hashing)
-2. **No Eviction Policy**: Simulation assumes sufficient memory
-   (production systems implement LRU eviction)
-3. **Synchronous Processing**: Real vLLM handles concurrent requests
-   asynchronously
+1. **Prefix-Based Hashing**: Implements vLLM's core approach of 
+   `hash(prefix tokens + block tokens)` to uniquely identify each KV 
+   block. This matches the production design from the 
+   [vLLM documentation](https://docs.vllm.ai/en/latest/design/automatic_prefix_caching.html)
+2. **No Eviction Policy**: Simulation assumes unlimited memory 
+   (production vLLM implements LRU-based eviction when cache is full)
+3. **Synchronous Processing**: Sequential request processing for 
+   simplicity (production vLLM uses async batching and scheduling)
+4. **Educational Focus**: Adds extensive visualization and metrics not 
+   present in production vLLM to aid understanding
 
 ## Differences from Production vLLM
 
@@ -418,15 +422,19 @@ This is a simplified educational model that **matches the vLLM
 
 Production vLLM includes additional features:
 
-- **Advanced Hash Functions**: Parent hash + block tokens + position
-  encoding (our simulation uses simplified tuple hashing)
+- **Cache Eviction Policy**: LRU-based eviction when cache is full, 
+  prioritizing blocks at end of longest prefix (we assume unlimited 
+  memory with no eviction)
+- **Position Encoding in Hash**: May include position information in cache 
+  keys (we use prefix + block tokens per vLLM's core design)
 - **GPU Memory Management**: Actual CUDA memory allocation and management
   (we simulate with Python objects)
 - **Async Scheduling**: Sophisticated request batching and scheduling
   (we process synchronously)
-- **Partial Block Handling**: More nuanced handling of partial blocks
-- **Doubly Linked List Operations**: Full O(1) free queue manipulations
-  (we have the data structure but use simpler list operations)
+- **Multi-LoRA Support**: Cache blocks for multiple LoRA adapters by 
+  including adapter ID in hash
+- **Multi-Modal Hashing**: Perceptual hashing for images and different 
+  modalities (we support text tokens only)
 
 ## Use Cases
 

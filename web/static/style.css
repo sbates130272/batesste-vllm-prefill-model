@@ -317,16 +317,6 @@ header h1 {
     padding-bottom: 10px;
 }
 
-.analytics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-    gap: 20px;
-}
-
-.heatmap-container canvas {
-    max-height: 400px !important;
-}
-
 .export-btn {
     background: none;
     border: 2px solid #667eea;
@@ -343,22 +333,29 @@ header h1 {
     color: white;
 }
 
-/* Similarity Matrix */
-.similarity-container {
-    grid-column: span 2;
+/* Analytics grid - 2x2 layout */
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
 }
 
-.similarity-legend {
+/* Chart placeholder */
+.chart-placeholder {
     display: flex;
-    gap: 15px;
+    align-items: center;
     justify-content: center;
-    margin-bottom: 10px;
-    font-size: 0.9rem;
-    color: #666;
+    min-height: 200px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 2px dashed #dee2e6;
 }
 
-.legend-separator {
-    color: #ccc;
+.chart-placeholder p {
+    color: #6c757d;
+    font-size: 1rem;
+    text-align: center;
+    margin: 0;
 }
 
 /* Conversations Box */

@@ -4,23 +4,22 @@ let analyticsCharts = {};
 
 // Initialize advanced analytics charts
 function initAnalyticsCharts() {
-    // Cache Hit Heatmap (scatter plot)
+    // Cache Hit Rate Over Time (line chart)
     analyticsCharts.heatmap = new Chart(
         document.getElementById('heatmapChart'),
         {
-            type: 'scatter',
+            type: 'line',
             data: {
+                labels: [],
                 datasets: [{
-                    label: 'Cache Hit Rate',
+                    label: 'Cache Hit Rate %',
                     data: [],
-                    backgroundColor: function(context) {
-                        const value = context.parsed ? context.parsed.y : 0;
-                        return value > 75 ? 'rgba(40, 167, 69, 0.8)' :
-                               value > 50 ? 'rgba(255, 193, 7, 0.8)' :
-                               'rgba(220, 53, 69, 0.8)';
-                    },
-                    pointRadius: 6,
-                    pointHoverRadius: 8
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 }]
             },
             options: {
@@ -28,11 +27,12 @@ function initAnalyticsCharts() {
                 maintainAspectRatio: false,
                 scales: {
                     x: {
+                        type: 'linear',
+                        min: 0,
                         title: {
                             display: true,
                             text: 'Time (s)'
-                        },
-                        beginAtZero: true
+                        }
                     },
                     y: {
                         title: {
@@ -52,7 +52,9 @@ function initAnalyticsCharts() {
                         }
                     },
                     legend: {
-                        display: false
+                        display: true,
+                        position: 'top',
+                        align: 'start'
                     }
                 }
             }
@@ -156,59 +158,64 @@ function initAnalyticsCharts() {
         }
     );
     
-    // Conversation Similarity Matrix (bubble chart)
+    // Conversation Similarity Heatmap
     analyticsCharts.similarity = new Chart(
         document.getElementById('similarityChart'),
         {
-            type: 'bubble',
+            type: 'bar',
             data: {
+                labels: [],
                 datasets: [{
-                    label: 'Conversation Pairs',
+                    label: 'Jaccard Similarity',
                     data: [],
-                    backgroundColor: function(context) {
-                        if (!context.raw) return 'rgba(102, 126, 234, 0.6)';
-                        // Color based on Jaccard similarity
-                        const jaccard = context.raw.jaccard || 0;
-                        if (jaccard > 0.7) return 'rgba(40, 167, 69, 0.7)';
-                        if (jaccard > 0.4) return 'rgba(255, 193, 7, 0.7)';
-                        return 'rgba(220, 53, 69, 0.7)';
-                    },
-                    borderColor: 'rgba(102, 126, 234, 0.8)',
-                    borderWidth: 1
+                    backgroundColor: [],
+                    borderWidth: 1,
+                    borderColor: '#fff'
                 }]
             },
             options: {
+                indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'start',
+                        labels: {
+                            font: {
+                                size: 11,
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const jaccard = context.parsed.x;
+                                return `Similarity: ${(jaccard * 100).toFixed(1)}%`;
+                            }
+                        }
+                    }
+                },
                 scales: {
                     x: {
+                        min: 0,
+                        max: 1,
                         title: {
                             display: true,
-                            text: 'Conversation ID (numeric)'
+                            text: 'Jaccard Similarity Index'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return (value * 100).toFixed(0) + '%';
+                            }
                         }
                     },
                     y: {
                         title: {
                             display: true,
-                            text: 'Conversation ID (numeric)'
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const data = context.raw;
-                                return [
-                                    `Pair: ${data.conv_a} ↔ ${data.conv_b}`,
-                                    `Prefix Overlap: ${data.prefix_overlap} tokens`,
-                                    `Jaccard Index: ${(data.jaccard * 100).toFixed(1)}%`,
-                                    `Lengths: ${data.total_tokens_a} / ${data.total_tokens_b} tokens`
-                                ];
-                            }
+                            text: 'Conversation Pairs'
                         }
                     }
                 }
@@ -227,14 +234,13 @@ function updateAnalyticsCharts(analyticsData) {
         return;
     }
     
-    // Update heatmap
+    // Update cache hit rate over time
     if (analyticsData.heatmap && analyticsCharts.heatmap) {
-        const heatmapPoints = analyticsData.heatmap.map(point => ({
-            x: point.time,
-            y: point.hit_rate
-        }));
+        const times = analyticsData.heatmap.map(point => point.time);
+        const hitRates = analyticsData.heatmap.map(point => point.hit_rate);
         
-        analyticsCharts.heatmap.data.datasets[0].data = heatmapPoints;
+        analyticsCharts.heatmap.data.labels = times;
+        analyticsCharts.heatmap.data.datasets[0].data = hitRates;
         analyticsCharts.heatmap.update('none');
     }
     
@@ -269,41 +275,70 @@ function updateAnalyticsCharts(analyticsData) {
         analyticsCharts.prefixOverlap.update('none');
     }
     
-    // Update conversation similarity matrix
+    // Update conversation similarity heatmap
     if (analyticsData.conversation_similarities && analyticsCharts.similarity) {
         const simData = analyticsData.conversation_similarities;
         
         if (simData.conversation_ids && simData.similarities) {
-            // Create a mapping of conv_id to numeric index
-            const convIdToIndex = {};
-            simData.conversation_ids.forEach((id, idx) => {
-                convIdToIndex[id] = idx;
-            });
+            // Sort by Jaccard similarity (highest first)
+            const allSorted = simData.similarities
+                .sort((a, b) => b.jaccard_similarity - a.jaccard_similarity);
             
-            // Convert similarities to bubble chart data points
-            const bubbleData = simData.similarities.map(sim => {
-                const x = convIdToIndex[sim.conv_a] || 0;
-                const y = convIdToIndex[sim.conv_b] || 0;
-                // Bubble size based on prefix overlap (larger = more overlap)
-                const r = Math.max(3, Math.min(15, sim.prefix_overlap / 10));
+            // Get top 5, middle 5, and bottom 5
+            let selectedSims = [];
+            const totalPairs = allSorted.length;
+            
+            if (totalPairs >= 15) {
+                // Top 5 (most similar)
+                const top5 = allSorted.slice(0, 5);
                 
-                return {
-                    x: x,
-                    y: y,
-                    r: r,
-                    conv_a: sim.conv_a,
-                    conv_b: sim.conv_b,
-                    prefix_overlap: sim.prefix_overlap,
-                    jaccard: sim.jaccard_similarity,
-                    total_tokens_a: sim.total_tokens_a,
-                    total_tokens_b: sim.total_tokens_b
-                };
+                // Middle 5 (around median)
+                const midStart = Math.floor((totalPairs - 5) / 2);
+                const middle5 = allSorted.slice(midStart, midStart + 5);
+                
+                // Bottom 5 (least similar)
+                const bottom5 = allSorted.slice(-5);
+                
+                // Combine: top, middle, bottom (maintain order for visual clarity)
+                selectedSims = [...top5, ...middle5, ...bottom5];
+            } else {
+                // If we have fewer than 15 pairs, just show all of them
+                selectedSims = allSorted;
+            }
+            
+            // Create labels and data for horizontal bar chart
+            const labels = selectedSims.map(sim => 
+                `${sim.conv_a.slice(-4)} ↔ ${sim.conv_b.slice(-4)}`
+            );
+            
+            const data = selectedSims.map(sim => sim.jaccard_similarity);
+            
+            // Calculate statistics across all pairs (not just displayed ones)
+            const allJaccardValues = allSorted.map(s => s.jaccard_similarity);
+            const avgJaccard = allJaccardValues.reduce((a, b) => a + b, 0) / allJaccardValues.length;
+            const minJaccard = Math.min(...allJaccardValues);
+            const maxJaccard = Math.max(...allJaccardValues);
+            
+            // Color gradient based on similarity (red = high similarity = bad diversity)
+            const colors = selectedSims.map(sim => {
+                const jaccard = sim.jaccard_similarity;
+                if (jaccard > 0.7) return 'rgba(220, 53, 69, 0.8)';    // Red - very similar (bad)
+                if (jaccard > 0.5) return 'rgba(255, 152, 0, 0.8)';    // Orange - moderately similar
+                if (jaccard > 0.3) return 'rgba(255, 193, 7, 0.8)';    // Yellow - somewhat similar
+                return 'rgba(40, 167, 69, 0.8)';                         // Green - different (good)
             });
             
-            analyticsCharts.similarity.data.datasets[0].data = bubbleData;
+            analyticsCharts.similarity.data.labels = labels;
+            analyticsCharts.similarity.data.datasets[0].data = data;
+            analyticsCharts.similarity.data.datasets[0].backgroundColor = colors;
+            
+            // Update chart title with statistics (across all pairs)
+            analyticsCharts.similarity.data.datasets[0].label = 
+                `Top/Mid/Low 5 (of ${totalPairs} pairs) | Avg: ${(avgJaccard * 100).toFixed(1)}% | Min: ${(minJaccard * 100).toFixed(1)}% | Max: ${(maxJaccard * 100).toFixed(1)}%`;
+            
             analyticsCharts.similarity.update('none');
             
-            console.log(`Updated similarity matrix with ${bubbleData.length} pairs`);
+            console.log(`Updated similarity heatmap with ${selectedSims.length} pairs (Top/Mid/Bottom 5 of ${totalPairs})`);
         }
     }
 }
@@ -311,6 +346,7 @@ function updateAnalyticsCharts(analyticsData) {
 // Clear analytics charts
 function clearAnalyticsCharts() {
     if (analyticsCharts.heatmap) {
+        analyticsCharts.heatmap.data.labels = [];
         analyticsCharts.heatmap.data.datasets[0].data = [];
         analyticsCharts.heatmap.update();
     }

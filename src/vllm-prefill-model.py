@@ -136,14 +136,19 @@ class PrefixCacheManager:
         self, prefix_tokens: List[int], block_tokens: List[int]
     ) -> Tuple[int, ...]:
         """
-        Generates the simplified hash key:
-        (token_id_1, token_id_2, ..., token_id_N).
-        In real vLLM, this is more complex (parent hash + block tokens
-        + extra hashes).
-        We use all tokens up to this block to ensure uniqueness.
+        Generates cache key following vLLM's approach:
+        hash(prefix tokens + block tokens)
+        
+        This matches the vLLM design where each KV block is uniquely 
+        identified by:
+        1. The tokens within the block (block_tokens)
+        2. The tokens in the prefix before the block (prefix_tokens)
+        
+        Reference: https://docs.vllm.ai/en/latest/design/automatic_prefix_caching.html
+        
+        Note: vLLM may also include position encoding in production, but
+        the core concept of prefix + block tokens is the same.
         """
-        # The key is the sequence of all tokens from the start of the
-        # prompt up to and including the current block's tokens.
         return tuple(prefix_tokens + block_tokens)
     
     def _generate_hash_string(self, cache_key: Tuple[int, ...]) -> str:
